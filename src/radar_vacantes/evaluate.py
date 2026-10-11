@@ -416,6 +416,10 @@ _ENGLISH_HIGH = re.compile(
     r"excellent (written and (verbal|spoken)|english)|proficient in english)\b",
     re.IGNORECASE,
 )
+#: Nivel del perfil que ya cubre un "inglés fluido/avanzado" exigido.
+_ENGLISH_DECLARED_HIGH = re.compile(
+    r"\b(c1|c2|nativ\w*|native|fluent|flu[ií]do|biling\w*)", re.IGNORECASE
+)
 _MASTERS = re.compile(
     r"\b(mba|master'?s|maestr[ií]a|posgrado|post.?grad\w*|graduate degree|ph\.?d|"
     r"advanced (university )?degree)\b",
@@ -573,9 +577,9 @@ def gaps_and_reasons(
     elif years:
         reasons.append(f"experiencia pedida ({years}+ años) dentro de lo que tienes")
     joined_must = " ".join(body)
-    if _ENGLISH_HIGH.search(joined_must):
+    if _ENGLISH_HIGH.search(joined_must) and not _ENGLISH_DECLARED_HIGH.search(profile.english):
         weight += 1
-        gaps.append(f"inglés fluido/avanzado; el perfil: {profile.english} sin certificar")
+        gaps.append(f"pide inglés fluido/avanzado; el perfil declara {profile.english}")
     if not profile.has_masters and any(
         _MASTERS.search(ln)
         and (_REQUIRED_WORD.search(ln) or _DEGREE_LEAD.search(ln))

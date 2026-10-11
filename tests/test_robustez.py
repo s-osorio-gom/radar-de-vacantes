@@ -321,3 +321,18 @@ def test_peso_salary_with_dollar_sign_is_compared_in_cop() -> None:
     ev = evaluate(p, company_id="a", sector="", tier=2, profile=Profile.from_config(EXAMPLE),
                   today=TODAY, gate=gate)
     assert "≈ COP 4,500,000/mes, < COP 5,500,000/mes" in ev.salary_note
+
+
+@pytest.mark.parametrize(
+    ("level", "gap"),
+    [("B2", True), ("B2+", True), ("intermedio", True), ("C1", False), ("C2 (IELTS 8)", False),
+     ("nativo", False), ("bilingüe", False)],
+)
+def test_english_gap_depends_on_the_declared_level(level: str, gap: bool) -> None:
+    p = _posting(title="Financial Analyst", description=(
+        "Requirements\nFluent English required\n2 years of experience in finance"))
+    profile = Profile.from_config({**EXAMPLE, "english": level})
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=profile, today=TODAY)
+    assert any("inglés" in g for g in ev.gaps) is gap
+    if not gap:
+        assert ev.fit.value == "cumple completamente"
