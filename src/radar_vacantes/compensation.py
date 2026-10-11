@@ -47,12 +47,26 @@ _AMOUNT = re.compile(
 HOURS_PER_YEAR = Decimal(2080)
 
 
+#: Miles agrupados con "." o "," (4.500.000 · 80,000), con decimales opcionales en el otro
+#: separador (4.500.000,00 · 70,000.00).
+_THOUSANDS = re.compile(r"(\d{1,3}(?:([.,])\d{3})(?:\2\d{3})*)(?:([.,])(\d{1,2}))?")
+_PLAIN = re.compile(r"(\d+)(?:[.,](\d+))?")
+
+
 def _to_decimal(number: str, suffix: str) -> Decimal | None:
-    cleaned = number.replace(",", "")
-    if cleaned.count(".") > 1:
-        cleaned = cleaned.replace(".", "")
+    """Cifra al estilo latino o anglosajón: "4.500" y "4,500" son cuatro mil quinientos;
+    "4.500.000,00" son cuatro millones y medio; "4.5" con sufijo M, cuatro millones y medio."""
+    text = number.rstrip(".,")
+    grouped = _THOUSANDS.fullmatch(text)
+    plain = _PLAIN.fullmatch(text)
+    if grouped and grouped.group(3) != grouped.group(2):
+        integer, frac = re.sub(r"[.,]", "", grouped.group(1)), grouped.group(4) or ""
+    elif plain:
+        integer, frac = plain.group(1), plain.group(2) or ""
+    else:
+        return None
     try:
-        value = Decimal(cleaned)
+        value = Decimal(f"{integer}.{frac}" if frac else integer)
     except InvalidOperation:
         return None
     if suffix.lower() == "k":
@@ -67,6 +81,8 @@ _CODES = (
     ("COP", re.compile(r"\b(cop|pesos?)\b|col\$", re.IGNORECASE)),
     ("USD", re.compile(r"\busd\b|us\$|d[oó]lar", re.IGNORECASE)),
 )
+_MILLONES = re.compile(r"(\d)\s*mill(?:ones|[oó]n)\b", re.IGNORECASE)
+_COP_MONTHLY = Decimal(100_000)
 _YEAR = re.compile(r"(19|20)\d\d")
 _GROUPED = re.compile(r"\d[.,]\d{3}")
 #: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
@@ -92,6 +108,8 @@ def parse_salary(text: str) -> SalaryRange | None:
     if len(named) > 1:
         return None
     first_named = min(named_at.values(), default=len(text))
+    # "$5 millones" = $5M; "401k" es un plan de retiro, no un monto.
+    text = _MILLONES.sub(r"\1M", re.sub(r"\b401\s*\(?k\)?", " ", text, flags=re.IGNORECASE))
     seen_symbol = False
     millions = False
     amounts: list[Decimal] = []
@@ -110,16 +128,20 @@ def parse_salary(text: str) -> SalaryRange | None:
             symbol or suffix or ((named or seen_symbol) and value >= 1000)
         ):
             amounts.append(value)
-            millions = millions or (not suffix and value >= _COP_MAGNITUDE)
+            millions = millions or value >= _COP_MAGNITUDE
     if not amounts or not (named or seen_symbol):
         return None
-    currency = next(iter(named)) if named else ("COP" if millions else "USD")
     if re.search(r"(/\s*h(ou)?r|per hour|hourly|por hora)", lowered):
         interval = Interval.HOURLY
     elif re.search(r"(/\s*mo(nth)?|per month|monthly|mensual|al mes|por mes|/\s*mes)", lowered):
         interval = Interval.MONTHLY
     else:
         interval = Interval.ANNUAL
+    # "$" a secas: millones, o cientos de miles al mes, solo pueden ser pesos.
+    monthly_hundreds = interval is Interval.MONTHLY and max(amounts) >= _COP_MONTHLY
+    currency = (
+        next(iter(named)) if named else ("COP" if millions or monthly_hundreds else "USD")
+    )
     return SalaryRange(currency, min(amounts), max(amounts), interval)
 
 

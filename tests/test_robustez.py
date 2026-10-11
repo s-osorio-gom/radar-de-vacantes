@@ -294,6 +294,16 @@ def test_report_link_with_parentheses_stays_one_link() -> None:
         ("Salario 2026: COP 8.000.000 mensual", "COP", 8_000_000, "monthly"),
         ("COP 5.000.000 mensual (2026)", "COP", 5_000_000, "monthly"),
         ("4.500.000 - 6.000.000 COP mensual", "COP", 4_500_000, "monthly"),
+        # Miles y decimales al estilo latino y anglosajón.
+        ("USD 4.500 mensual", "USD", 4_500, "monthly"),
+        ("$4.500.000,00", "COP", 4_500_000, "annual"),
+        ("COP 8.000.000,00 mensual", "COP", 8_000_000, "monthly"),
+        ("$70,000.00 - $90,000.00 per year", "USD", 70_000, "annual"),
+        ("$900.000 mensual", "COP", 900_000, "monthly"),
+        ("$5 millones al mes", "COP", 5_000_000, "monthly"),
+        ("COP 4.5M", "COP", 4_500_000, "annual"),
+        ("$25/hr", "USD", 25, "hourly"),
+        ("USD 80000 plus 401k", "USD", 80_000, "annual"),
     ],
 )
 def test_salary_currency_and_interval(text: str, currency: str, low: int, interval: str) -> None:
