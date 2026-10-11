@@ -1,5 +1,7 @@
 # Radar de vacantes
 
+[![ci](https://github.com/s-osorio-gom/radar-de-vacantes/actions/workflows/ci.yml/badge.svg)](https://github.com/s-osorio-gom/radar-de-vacantes/actions/workflows/ci.yml)
+
 Lee todos los días los portales de empleo de las empresas que le interesan, compara cada
 aviso con su perfil y le entrega **las 20 mejores vacantes, verificadas en el portal
 original**. Para cada una dice si cumple los requisitos completa o parcialmente, cuáles
@@ -129,7 +131,7 @@ Opciones útiles: `--seguimiento postulaciones.md` (una tabla Markdown con colum
 Empresa | Puesto | Estado; esas vacantes no ocupan cupo), `--indeed resultados.json`,
 `--top 30`.
 
-Para agregar una empresa, `radar descubrir "Empresa" https://empresa.com/careers` le dice
+Para agregar una empresa, `radar descubrir "Empresa" https://example.com/careers` le dice
 qué sistema de vacantes usa y con qué referencia ponerla en `universo.yaml`.
 
 ## Corrida diaria
