@@ -110,15 +110,13 @@ class FormatError(ValueError):
 
 
 def _items(payload: Any, *path: str) -> list[Any]:
-    """La lista en `payload[path...]` (sin ruta: el payload mismo). Si el contenedor falta o no
-    es una lista, `FormatError`; presente y vacío (o null) es una lectura vacía legítima."""
+    """La lista en `payload[path...]` (sin ruta: el payload mismo). Si el contenedor falta, es
+    null o no es una lista, `FormatError`; solo una lista vacía es una lectura vacía legítima."""
     node = payload
     for key in path:
         if not isinstance(node, dict) or key not in node:
             raise FormatError(f"formato inesperado: falta {'.'.join(path)}")
         node = node[key]
-    if node is None and path:
-        return []
     if not isinstance(node, list):
         raise FormatError(f"formato inesperado: {'.'.join(path) or 'la respuesta'} no es una lista")
     return node
@@ -367,7 +365,7 @@ def read_legacy(
     board = BoardRef(spec.method, spec.ref, spec.company)
     if spec.method != ATS_SMARTRECRUITERS:
         payload = client.get_json(_legacy_url(spec))
-        _items(payload, *_LEGACY_LIST[spec.method])
+        raw = len(_items(payload, *_LEGACY_LIST[spec.method]))
         if spec.method == ATS_GREENHOUSE:
             postings = parse_greenhouse(board, payload, seen_at)
             jobs: Any = payload.get("jobs", []) if isinstance(payload, dict) else []
@@ -380,13 +378,14 @@ def read_legacy(
             ]
         else:
             postings = _BOARD_PARSERS[spec.method](board, payload, seen_at)
-        return _result(spec, postings, pages=1)
+        return _result(spec, postings, pages=1, raw=raw)
     postings: list[JobPosting] = []
     pages = 0
     offset = 0
+    raw = 0
     while pages < max_pages:
         payload = client.get_json(_legacy_url(spec, offset))
-        _items(payload, *_LEGACY_LIST[spec.method])
+        raw += len(_items(payload, *_LEGACY_LIST[spec.method]))
         pages += 1
         batch = parse_smartrecruiters(board, payload, seen_at)
         postings.extend(batch)
@@ -394,15 +393,23 @@ def read_legacy(
         offset += len(batch)
         if not batch or offset >= total:
             break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 def _with_description(p: JobPosting, text: str) -> JobPosting:
     return JobPosting(**{**{f: getattr(p, f) for f in p.__slots__}, "description": text})
 
 
-def _result(spec: SourceSpec, postings: list[JobPosting], *, pages: int) -> SourceResult:
-    return SourceResult(spec, Outcome.OK if postings else Outcome.EMPTY, postings, pages=pages)
+def _result(
+    spec: SourceSpec, postings: list[JobPosting], *, pages: int, raw: int = 0
+) -> SourceResult:
+    """Resultado de una lectura. `raw` = elementos que trajo la fuente: si trajo elementos y
+    ninguno es una vacante legible (título e identificador o enlace), cambió el formato; tomarlo
+    como "sin vacantes" cerraría en el historial todo lo anterior."""
+    valid = [p for p in postings if p.title.strip() and (p.source_job_id or p.official_job_url)]
+    if raw and not valid:
+        raise FormatError(f"formato inesperado: {raw} elementos sin vacantes legibles")
+    return SourceResult(spec, Outcome.OK if valid else Outcome.EMPTY, valid, pages=pages)
 
 
 # --------------------------------------------------------------------------- Workday
@@ -450,6 +457,7 @@ def read_workday(
     day = today or datetime.fromisoformat(seen_at).date()
     seen: dict[str, JobPosting] = {}
     pages = 0
+    raw = 0
     for query in spec.queries or ("",):
         offset = 0
         while pages < max_pages:
@@ -459,6 +467,7 @@ def read_workday(
             )
             pages += 1
             jobs = _items(data, "jobPostings")
+            raw += len(jobs)
             for job in jobs:
                 if not isinstance(job, dict) or not job.get("externalPath"):
                     continue
@@ -481,7 +490,7 @@ def read_workday(
             offset += page_size
             if not jobs or offset >= total:
                 break
-    return _result(spec, list(seen.values()), pages=pages)
+    return _result(spec, list(seen.values()), pages=pages, raw=raw)
 
 
 def workday_detail(spec_ref: str, path: str, client: Http) -> dict[str, str]:
@@ -521,6 +530,7 @@ def read_oracle(
     host, site = oracle_parts(spec.ref)
     seen: dict[str, JobPosting] = {}
     pages = 0
+    raw = 0
     for query in spec.queries or ("",):
         offset = 0
         while pages < max_pages:
@@ -534,9 +544,12 @@ def read_oracle(
             data: Any = client.get_json(url)
             pages += 1
             items = _items(data, "items")
-            head: Any = items[0] if items else {}
-            reqs: Any = head.get("requisitionList", []) if isinstance(head, dict) else []
-            for r in reqs if isinstance(reqs, list) else []:
+            if not items:
+                raise FormatError("formato inesperado: items vacío, sin requisitionList")
+            head: Any = items[0]
+            reqs = _items(head, "requisitionList")
+            raw += len(reqs)
+            for r in reqs:
                 if not isinstance(r, dict) or not r.get("Id"):
                     continue
                 rid = str(r["Id"])
@@ -569,7 +582,7 @@ def read_oracle(
             offset += page_size
             if not reqs or offset >= total:
                 break
-    return _result(spec, list(seen.values()), pages=pages)
+    return _result(spec, list(seen.values()), pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- SuccessFactors
@@ -793,11 +806,13 @@ def read_hirehive(
     base = spec.ref.rstrip("/")
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     url: str | None = f"{base}/api/v1/jobs"
     while url and pages < max_pages:
         data: Any = client.get_json(url)
         pages += 1
         jobs = _items(data, "jobs")
+        raw += len(jobs)
         for j in jobs:
             if not isinstance(j, dict):
                 continue
@@ -826,7 +841,7 @@ def read_hirehive(
             )
         nxt = data.get("nextPage") if isinstance(data, dict) else None
         url = str(nxt) if isinstance(nxt, str) and nxt.startswith("https://") else None
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- Cornerstone
@@ -853,6 +868,7 @@ def read_cornerstone(
         raise HttpError(501, "cliente sin soporte de token")
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     for page in range(1, max_pages + 1):
         body = {
             "careerSiteId": int(site), "careerSitePageId": int(site), "pageNumber": page,
@@ -867,6 +883,7 @@ def read_cornerstone(
         )
         pages += 1
         reqs = _items(data, "data", "requisitions")
+        raw += len(reqs)
         inner: Any = data["data"]
         for r in reqs:
             if not isinstance(r, dict):
@@ -892,7 +909,7 @@ def read_cornerstone(
         total = int(inner.get("totalCount", 0)) if isinstance(inner, dict) else 0
         if not reqs or page * page_size >= total:
             break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- Amazon
@@ -915,6 +932,7 @@ def read_phenom(
             "siteType": "external", "global": True}
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     for place in spec.queries or ("",):
         offset = 0
         while pages < max_pages:
@@ -926,6 +944,7 @@ def read_phenom(
             data: Any = client.post_json(f"{origin}/widgets", body)
             pages += 1
             jobs = _items(data, "refineSearch", "data", "jobs")
+            raw += len(jobs)
             block: Any = data["refineSearch"]
             for j in jobs:
                 if not isinstance(j, dict):
@@ -958,7 +977,7 @@ def read_phenom(
             offset += page_size
             if offset >= total or not jobs:
                 break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 def read_amazon(
@@ -969,6 +988,7 @@ def read_amazon(
     Separa calificaciones básicas (indispensables) y preferidas (deseables)."""
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     offset = 0
     while pages < max_pages:
         url = (
@@ -979,6 +999,7 @@ def read_amazon(
         data: Any = client.get_json(url)
         pages += 1
         jobs = _items(data, "jobs")
+        raw += len(jobs)
         for j in jobs:
             if not isinstance(j, dict):
                 continue
@@ -1010,7 +1031,7 @@ def read_amazon(
         offset += page_size
         if not jobs or offset >= hits:
             break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- portal propio

@@ -13,7 +13,7 @@ import yaml
 
 from radar_vacantes.engine import Company, run_search
 from radar_vacantes.evaluate import Profile
-from radar_vacantes.sources import HttpError, Outcome, SourceSpec, read_source
+from radar_vacantes.sources import HttpError, Outcome, SourceSpec, UrllibHttp, read_source
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = Profile.from_config(yaml.safe_load((ROOT / "config/perfil.ejemplo.yaml").read_text()))
@@ -167,3 +167,71 @@ def test_one_hostile_source_does_not_stop_the_run() -> None:
     outcomes = {r.spec.company_id: r.outcome for r in run.results}
     assert outcomes == {"acme": Outcome.OK, "rota": Outcome.ERROR}
     assert len(run.evaluations) == 1
+
+
+#: Dónde va la lista de vacantes en la respuesta vacía de cada conector.
+def _with_list(method: str, items: Any) -> Any:
+    payload = json.loads(json.dumps(JSON_SOURCES[method][1]))
+    if method == "lever":
+        return items
+    if method == "oracle":
+        payload["items"][0]["requisitionList"] = items
+    elif method == "phenom":
+        payload["refineSearch"]["data"]["jobs"] = items
+    else:
+        key = {"smartrecruiters": "content", "recruitee": "offers", "workday": "jobPostings"}
+        payload[key.get(method, "jobs")] = items
+    return payload
+
+
+@pytest.mark.parametrize("method", sorted(JSON_SOURCES))
+@pytest.mark.parametrize(
+    "items",
+    [None, [1, "x", None], [{"identifier": 9, "name": "Financial Analyst", "link": "https://x.co/9"}]],
+    ids=["contenedor-null", "elementos-no-dict", "campos-renombrados"],
+)
+def test_items_that_yield_no_posting_are_an_error(method: str, items: Any) -> None:
+    res = _read(method, _with_list(method, items))
+    assert res.outcome is Outcome.ERROR and "formato inesperado" in res.detail
+
+
+def test_one_bad_item_does_not_hide_the_good_ones() -> None:
+    good = {"id": 1, "title": "Financial Analyst", "absolute_url": "https://x.co/1",
+            "location": {"name": "Bogotá"}}
+    res = _read("greenhouse", {"jobs": [good, 7, {"foo": "bar"}]})
+    assert res.outcome is Outcome.OK and len(res.postings) == 1
+
+
+def test_oracle_without_requisition_list_is_an_error() -> None:
+    for payload in ({"items": []}, {"items": [{"foo": 1}]}):
+        assert _read("oracle", payload).outcome is Outcome.ERROR
+
+
+class _Cornerstone(UrllibHttp):
+    """Cornerstone exige el cliente real (token anónimo); aquí sin red."""
+
+    def __init__(self, search: Any) -> None:
+        super().__init__(respect_robots=False, per_host_interval=0)
+        self.search = search
+
+    def get_text(self, url: str) -> str:
+        return '{"token":"anon"} https://eu.api.csod.com/x'
+
+    def post_json(
+        self, url: str, body: dict[str, Any], headers: dict[str, str] | None = None
+    ) -> Any:
+        return self.search
+
+
+@pytest.mark.parametrize(
+    ("search", "outcome"),
+    [({"data": {"totalCount": 0, "requisitions": []}}, Outcome.EMPTY),
+     ({"data": {"requisitions": None}}, Outcome.ERROR),
+     ({"data": {"requisitions": [1, None]}}, Outcome.ERROR),
+     ({"error": "x"}, Outcome.ERROR)],
+)
+def test_cornerstone_empty_and_unexpected_shapes(search: Any, outcome: Outcome) -> None:
+    spec = SourceSpec("a", "Acme", "cornerstone",
+                      "https://acme.csod.com/ux/ats/careersite/1/home?c=acme")
+    res = read_source(spec, _Cornerstone(search), "x", sleep=lambda _: None)
+    assert res.outcome is outcome
