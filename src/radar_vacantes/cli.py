@@ -38,7 +38,17 @@ from radar_vacantes.verify import ABIERTA, NO_VERIFICABLE, verify
 
 #: TRM oficial de Colombia (datos abiertos de la Superintendencia Financiera).
 TRM_URL = "https://www.datos.gov.co/resource/32sa-8pi3.json?$order=vigenciadesde%20DESC&$limit=1"
-EJEMPLO = Path(__file__).resolve().parents[2] / "ejemplo"
+_REPO = Path(__file__).resolve().parents[2]
+_PACKAGED = Path(__file__).resolve().parent / "_ejemplo"  # copia que trae el wheel
+
+
+def _example(in_repo: Path) -> Path:
+    """Archivo de ejemplo del clon; si se instaló sin clonar, la copia empaquetada."""
+    return in_repo if in_repo.exists() else _PACKAGED / in_repo.name
+
+
+DEMO_VACANCIES = _example(_REPO / "ejemplo" / "vacantes.json")
+EXAMPLE_PROFILE = _example(_REPO / "config" / "perfil.ejemplo.yaml")
 
 
 def _yaml(path: Path) -> dict[str, Any]:
@@ -172,7 +182,7 @@ def buscar(args: argparse.Namespace) -> int:
 def demo(args: argparse.Namespace) -> int:
     """Evalúa vacantes sintéticas sin red: muestra cómo el motor lee requisitos."""
     profile, _ = _profile(args.perfil)
-    rows: Any = _json_file(EJEMPLO / "vacantes.json")
+    rows: Any = _json_file(DEMO_VACANCIES)
     today = date(2026, 10, 10)
     evals: list[Evaluation] = []
     for r in rows:
@@ -225,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--zona", default="America/Bogota")
     b.set_defaults(func=buscar)
     d = sub.add_parser("demo", help="Evalúa vacantes sintéticas sin conexión.")
-    d.add_argument("--perfil", type=Path, default=EJEMPLO.parent / "config" / "perfil.ejemplo.yaml")
+    d.add_argument("--perfil", type=Path, default=EXAMPLE_PROFILE)
     d.set_defaults(func=demo)
     s = sub.add_parser("descubrir", help="Detecta el sistema de vacantes de una página de empleo.")
     s.add_argument("empresa")

@@ -47,3 +47,19 @@ def test_universe_config_loads() -> None:
     # Algunas empresas se declaran sin fuente: quedan para `radar descubrir`.
     with_source = [c for c in companies if c.sources or c.pending_sources]
     assert len(with_source) >= 0.9 * len(companies)
+
+
+def test_demo_files_ship_in_the_wheel() -> None:
+    """Instalado sin clonar, la demo lee la copia empaquetada: el wheel debe traer los mismos
+    archivos que la CLI busca."""
+    import tomllib
+
+    from radar_vacantes import cli
+
+    cfg = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
+    shipped = cfg["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"]
+    for source, target in shipped.items():
+        assert (ROOT / source).is_file()
+        assert target == f"radar_vacantes/_ejemplo/{Path(source).name}"
+    names = {Path(s).name for s in shipped}
+    assert {cli.DEMO_VACANCIES.name, cli.EXAMPLE_PROFILE.name} <= names
