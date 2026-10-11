@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -93,6 +93,28 @@ def _json_file(path: Path) -> Any:
         raise SystemExit(f"{path} no es JSON válido: {exc}") from None
 
 
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise SystemExit(
+            f"Zona horaria desconocida: {name!r}. Use un nombre IANA, p. ej. America/Bogota"
+        ) from None
+
+
+def _tracked(path: str | None) -> list[tuple[str, set[str]]]:
+    """Postulaciones ya hechas (--seguimiento). Se lee antes de la red: un error de ruta no
+    debe descubrirse después de minutos de corrida, ni ignorarse en silencio."""
+    if not path:
+        return []
+    try:
+        return tracked_from_seguimiento(Path(path).read_text("utf-8"))
+    except FileNotFoundError:
+        raise SystemExit(f"No existe el archivo de seguimiento {path}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"No se pudo leer el seguimiento {path}: {exc}") from None
+
+
 def _positive(text: str) -> int:
     try:
         value = int(text)
@@ -126,7 +148,8 @@ def buscar(args: argparse.Namespace) -> int:
         companies = load_universe(universe, universe)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise SystemExit(f"{args.universo} tiene una entrada mal formada: {exc!r}") from None
-    tz = ZoneInfo(args.zona)
+    tz = _zone(args.zona)
+    tracked = _tracked(args.seguimiento)
     now = datetime.now(tz)
     stamp = now.strftime("%Y-%m-%dT%H%M%S")
     out: Path = args.salida
@@ -155,8 +178,6 @@ def buscar(args: argparse.Namespace) -> int:
     (out / "busqueda_latest.json").write_text(
         json.dumps(latest_json(run, verified), ensure_ascii=False, indent=1), "utf-8"
     )
-    seg = Path(args.seguimiento) if args.seguimiento else None
-    tracked = tracked_from_seguimiento(seg.read_text("utf-8")) if seg and seg.exists() else []
     chosen: list[tuple[Evaluation, Any]] = []
     dropped: list[tuple[Evaluation, Any]] = []
     for ev in select_top(run.evaluations):

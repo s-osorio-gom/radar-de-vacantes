@@ -348,3 +348,31 @@ def test_future_or_invalid_dates_are_not_recent(published: str, age: int | None,
     ev = evaluate(_posting(published_at=published), company_id="a", sector="", tier=2,
                   profile=Profile.from_config(EXAMPLE), today=TODAY)
     assert (ev.age_days, ev.recency) == (age, recency)
+
+
+def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    import radar_vacantes.cli as cli
+
+    def refuse(**_: Any) -> None:
+        raise AssertionError("se abrió la red antes de validar los argumentos")
+
+    monkeypatch.setattr(cli, "UrllibHttp", refuse)
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        (["--seguimiento", "no-existe.md"], "No existe el archivo de seguimiento"),
+        (["--zona", "Bogota"], "Zona horaria desconocida"),
+    ],
+)
+def test_cli_bad_arguments_fail_before_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: list[str], message: str
+) -> None:
+    _no_network(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    args = ["buscar", "--perfil", str(ROOT / "config/perfil.ejemplo.yaml"),
+            "--universo", str(ROOT / "config/universo.yaml"), "--salida", str(tmp_path / "s")]
+    with pytest.raises(SystemExit, match=message):
+        main([*args, *extra])
+    assert not (tmp_path / "s").exists()
