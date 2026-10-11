@@ -43,6 +43,10 @@ preferences:
     min_tier: 1
     families: [fpa, strategy]
     title_pattern: '\b(senior|lead|manager)\b'
+    # sectors: [consumo_masivo, retail]   # a qué sectores aplica; sin la clave, esos dos
+  # Sectores donde "Analyst" o "Associate" a secas cuenta como afinidad alta (programas de
+  # entrada). Sin la clave se usan los del código (evaluate.py, _TRACK_SECTORS); {} la apaga.
+  # entry_track_sectors: {consultoria: "consultoría (carrera de entrada)"}
 
 # Meta: por qué cada sector o familia acerca a la meta. Aparece en el reporte de cada vacante.
 meta:

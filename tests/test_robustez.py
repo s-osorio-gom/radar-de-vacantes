@@ -376,3 +376,35 @@ def test_cli_bad_arguments_fail_before_the_network(
     with pytest.raises(SystemExit, match=message):
         main([*args, *extra])
     assert not (tmp_path / "s").exists()
+
+
+def test_entry_track_and_cpg_sectors_come_from_the_profile() -> None:
+    p = _posting(title="Associate", description="")
+
+    def rel(cfg: dict[str, Any], sector: str) -> str:
+        prof = Profile.from_config(cfg)
+        return evaluate(p, company_id="a", sector=sector, tier=1, profile=prof,
+                        today=TODAY).relevance.value
+
+    assert rel(EXAMPLE, "consultoria") == "alta"  # valor por defecto del código
+    off = {**EXAMPLE, "preferences": {**EXAMPLE["preferences"], "entry_track_sectors": {}}}
+    assert rel(off, "consultoria") == "nula"
+    mine = {**EXAMPLE, "preferences": {**EXAMPLE["preferences"],
+                                       "entry_track_sectors": {"tecnologia": "entrada en tech"}}}
+    assert rel(mine, "tecnologia") == "alta" and rel(mine, "consultoria") == "nula"
+    prefs = EXAMPLE["preferences"]
+    assert Profile.from_config(EXAMPLE).cpg_sectors is None
+    custom = {**EXAMPLE, "preferences": {**prefs, "cpg_exception": {
+        **prefs["cpg_exception"], "sectors": ["retail"]}}}
+    assert Profile.from_config(custom).cpg_sectors == frozenset({"retail"})
+
+
+@pytest.mark.parametrize(
+    ("prefs", "message"),
+    [({"entry_track_sectors": ["consultoria"]}, "entry_track_sectors"),
+     ({"entry_track_sectors": {"consultoria": 3}}, "entry_track_sectors.consultoria"),
+     ({"cpg_exception": {"sectors": "retail"}}, "cpg_exception.sectors")],
+)
+def test_invalid_track_preferences_name_the_field(prefs: dict[str, Any], message: str) -> None:
+    with pytest.raises(ProfileError, match=message):
+        Profile.from_config({**EXAMPLE, "preferences": prefs})

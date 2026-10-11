@@ -59,6 +59,9 @@ class Profile:
     family_points: tuple[tuple[str, int], ...] = ()
     cpg_exception: tuple[int, tuple[str, ...], str] = (1, (), "")
     floor_monthly_cop: int = 0  # piso salarial mensual; 0 = sin piso declarado
+    # None = los valores por defecto del código (_TRACK_SECTORS, _CPG).
+    entry_track_sectors: tuple[tuple[str, str], ...] | None = None
+    cpg_sectors: frozenset[str] | None = None
 
     @classmethod
     def from_config(cls, cfg: Any) -> Profile:
@@ -90,6 +93,12 @@ class Profile:
                 _regex(title_re, "preferences.cpg_exception.title_pattern") if title_re else "",
             ),
             floor_monthly_cop=_int(cfg, "floor_monthly_cop", default=0),
+            entry_track_sectors=_labels(prefs, "entry_track_sectors"),
+            cpg_sectors=(
+                frozenset(str(x) for x in _seq(exc, "sectors", "preferences.cpg_exception."))
+                if "sectors" in exc
+                else None
+            ),
         )
 
 
@@ -159,6 +168,17 @@ def _points(prefs: dict[str, Any], key: str) -> tuple[tuple[str, int], ...]:
     for k, v in _mapping(prefs, key, "preferences.").items():
         if isinstance(v, bool) or not isinstance(v, int):
             raise ProfileError(f"preferences.{key}.{k} debe ser un entero (puede ser negativo)")
+        out.append((str(k), v))
+    return tuple(out)
+
+
+def _labels(prefs: dict[str, Any], key: str) -> tuple[tuple[str, str], ...] | None:
+    if key not in prefs:
+        return None
+    out: list[tuple[str, str]] = []
+    for k, v in _mapping(prefs, key, "preferences.").items():
+        if not isinstance(v, str) or not v:
+            raise ProfileError(f"preferences.{key}.{k} debe ser un texto (la etiqueta del motivo)")
         out.append((str(k), v))
     return tuple(out)
 
@@ -724,6 +744,7 @@ _ENTRY_TRACK = re.compile(
 )
 #: En estos sectores, "Analyst" o "Associate" a secas es la puerta de entrada a la carrera
 #: objetivo (consultoría estratégica, banca de inversión), aunque el título no diga "finanzas".
+#: Valor por defecto; el perfil lo reemplaza con `preferences.entry_track_sectors`.
 _TRACK_SECTORS = {
     "consultoria": "consultoría (carrera de entrada)",
     "banca_global": "banca (programa de entrada)",
@@ -746,16 +767,21 @@ def evaluate(
     # El piso sale del perfil (`floor_monthly_cop`); antes se ignoraba y se usaba un valor fijo.
     floor = profile.floor_monthly_cop if floor_cop is None else floor_cop
     rel, family = relevance_of(p)
+    track = (
+        _TRACK_SECTORS
+        if profile.entry_track_sectors is None
+        else dict(profile.entry_track_sectors)
+    )
     if (
         not _FUNC_OFF.search(p.title)
         and rel in (Relevance.NULA, Relevance.BAJA)
-        and sector in _TRACK_SECTORS
+        and sector in track
         and tier == 1
         and _ENTRY_TRACK.search(p.title)
         and not _OFF_PROFILE.search(p.title)
         and not _OPS.search(p.title)
     ):
-        rel, family = Relevance.ALTA, _TRACK_SECTORS[sector]
+        rel, family = Relevance.ALTA, track[sector]
     auth = authorization_of(p, sector)
     must, nice = split_requirements(p.description) if p.description else ([], [])
     gaps, reasons, gap_weight = (
@@ -860,7 +886,9 @@ def evaluate(
     return ev
 
 
-_CPG = {"consumo_masivo", "retail"}
+#: Sectores a los que aplica `cpg_exception`; el perfil lo reemplaza con
+#: `preferences.cpg_exception.sectors`.
+_CPG = frozenset({"consumo_masivo", "retail"})
 
 
 def preference_points(
@@ -873,7 +901,8 @@ def preference_points(
     sectors = dict(profile.sector_points)
     families = dict(profile.family_points)
     pts = sectors.get(sector, 0)
-    if sector in _CPG and pts < 0:
+    cpg = _CPG if profile.cpg_sectors is None else profile.cpg_sectors
+    if sector in cpg and pts < 0:
         min_tier, fams, title_re = profile.cpg_exception
         if tier <= min_tier and family in fams and title_re and re.search(title_re, p.title, re.I):
             pts = -5
