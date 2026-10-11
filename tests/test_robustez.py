@@ -1,0 +1,276 @@
+"""Robustez y uso responsable: URLs, robots.txt, ritmo por host, perfil inválido, CLI y
+reportes con contenido hostil. Ninguna prueba toca la red."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+from radar_vacantes.boards import JobPosting
+from radar_vacantes.cli import _gate, main
+from radar_vacantes.engine import SearchStore
+from radar_vacantes.evaluate import Profile, ProfileError, evaluate
+from radar_vacantes.report import _detail, top_markdown
+from radar_vacantes.sources import (
+    HostThrottle,
+    HttpError,
+    Outcome,
+    RobotsCache,
+    RobotsDisallowedError,
+    SourceSpec,
+    UrllibHttp,
+    check_url,
+    read_source,
+)
+from radar_vacantes.verify import NO_VERIFICABLE, Check, verify
+
+ROOT = Path(__file__).resolve().parents[1]
+EXAMPLE = yaml.safe_load((ROOT / "config/perfil.ejemplo.yaml").read_text("utf-8"))
+TODAY = date(2026, 10, 10)
+
+
+def _posting(title: str = "Pricing Analyst", **kw: str) -> JobPosting:
+    base: dict[str, str] = {
+        "source": "greenhouse", "source_job_id": "1", "company": "Acme", "title": title,
+        "location": "Bogotá, Colombia", "official_job_url": "https://example.com/1",
+        "published_at": "2026-10-05", "first_seen_at": "",
+    }
+    base.update(kw)
+    return JobPosting(**base)
+
+
+# ------------------------------------------------------------------ URLs y cliente HTTP
+
+
+@pytest.mark.parametrize(
+    "url", ["file:///etc/passwd", "ftp://example.com/x", "/relativa", "javascript:alert(1)", ""]
+)
+def test_only_http_urls_are_opened(url: str) -> None:
+    with pytest.raises(ValueError):
+        check_url(url)
+    # El cliente real rechaza la URL antes de abrir nada (ni red ni disco).
+    with pytest.raises(ValueError):
+        UrllibHttp(respect_robots=False).get_text(url)
+
+
+def test_check_url_accepts_https() -> None:
+    assert check_url("https://example.com/jobs?q=1") == "https://example.com/jobs?q=1"
+
+
+def test_verify_never_reads_a_local_file_from_a_posting() -> None:
+    p = _posting(official_job_url="file:///etc/passwd", source="lever")
+    chk = verify(p, UrllibHttp(respect_robots=False), TODAY)
+    assert chk.status == NO_VERIFICABLE
+
+
+class _Robots:
+    def __init__(self, answers: dict[str, Any]) -> None:
+        self.answers = answers
+        self.calls: list[str] = []
+
+    def __call__(self, url: str) -> tuple[int, str]:
+        self.calls.append(url)
+        value = self.answers[url]
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+
+def test_robots_rules_are_respected_and_cached() -> None:
+    fetch = _Robots({
+        "https://a.example/robots.txt": (200, "User-agent: *\nDisallow: /privado/\n"),
+        "https://b.example/robots.txt": (404, ""),
+        "https://c.example/robots.txt": (503, ""),
+        "https://d.example/robots.txt": TimeoutError(),
+        "https://e.example/robots.txt": (200, "User-agent: radar-de-vacantes\nDisallow: /\n"),
+    })
+    robots = RobotsCache(fetch)
+    assert robots.allowed("https://a.example/jobs")
+    assert not robots.allowed("https://a.example/privado/1")
+    assert robots.allowed("https://b.example/x")  # sin robots.txt: sin restricciones
+    assert not robots.allowed("https://c.example/x")  # 5xx: no se lee en esta corrida
+    assert not robots.allowed("https://d.example/x")  # red caída: tampoco
+    assert not robots.allowed("https://e.example/x")  # regla para este agente
+    assert fetch.calls.count("https://a.example/robots.txt") == 1
+
+
+def test_client_refuses_paths_disallowed_by_robots() -> None:
+    client = UrllibHttp()
+    client.robots = RobotsCache(lambda _: (200, "User-agent: *\nDisallow: /\n"))
+    with pytest.raises(RobotsDisallowedError):
+        client.get_json("https://example.com/api/jobs")
+
+
+def test_robots_block_is_reported_and_not_retried() -> None:
+    calls = {"n": 0}
+
+    class Blocked:
+        def get_json(self, url: str) -> Any:
+            calls["n"] += 1
+            raise RobotsDisallowedError(url)
+
+        def post_json(self, url: str, body: dict[str, Any]) -> Any:
+            raise NotImplementedError
+
+        def get_text(self, url: str) -> str:
+            raise NotImplementedError
+
+    res = read_source(SourceSpec("a", "Acme", "greenhouse", "acme"), Blocked(), "x",
+                      sleep=lambda _: None)
+    assert res.outcome is Outcome.BLOCKED and "robots.txt" in res.detail
+    assert calls["n"] == 1
+
+
+def test_requests_to_the_same_host_are_spaced() -> None:
+    now = {"t": 100.0}
+    slept: list[float] = []
+
+    def sleep(s: float) -> None:
+        slept.append(s)
+
+    throttle = HostThrottle(0.5, clock=lambda: now["t"], sleep=sleep)
+    throttle.wait("https://a.example/1")
+    throttle.wait("https://a.example/2")
+    throttle.wait("https://b.example/1")
+    assert slept == [0.5]
+
+
+# ------------------------------------------------------------------ perfil
+
+
+def test_example_profile_is_valid() -> None:
+    p = Profile.from_config(EXAMPLE)
+    assert p.years >= 0 and p.floor_monthly_cop > 0
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"years_relevant": None}, "years_relevant"),
+        ({"years_relevant": "tres"}, "years_relevant"),
+        ({"years_relevant": -1}, "years_relevant"),
+        ({"english": None}, "english"),
+        ({"tools": "excel"}, "tools"),
+        ({"has_masters": "no"}, "has_masters"),
+        ({"strengths": [{"pattern": "(sin cerrar", "reason": "x"}]}, "strengths[0].pattern"),
+        ({"strengths": [{"pattern": "x"}]}, "strengths[0]"),
+        ({"preferences": {"sector_points": {"pagos": "mucho"}}}, "sector_points.pagos"),
+        ({"preferences": []}, "preferences"),
+        ({"floor_monthly_cop": "6 millones"}, "floor_monthly_cop"),
+    ],
+)
+def test_invalid_profile_names_the_field(change: dict[str, Any], message: str) -> None:
+    cfg = {**EXAMPLE, **change}
+    cfg = {k: v for k, v in cfg.items() if v is not None}
+    with pytest.raises(ProfileError, match=message.replace("[", r"\[").replace("]", r"\]")):
+        Profile.from_config(cfg)
+
+
+def test_profile_must_be_a_mapping() -> None:
+    with pytest.raises(ProfileError):
+        Profile.from_config(["no", "es", "un", "dict"])
+
+
+def test_salary_floor_comes_from_the_profile() -> None:
+    p = _posting(salary_text="COP 4.000.000 - 5.000.000 mensual")
+    low = Profile.from_config({**EXAMPLE, "floor_monthly_cop": 3_000_000})
+    high = Profile.from_config({**EXAMPLE, "floor_monthly_cop": 8_000_000})
+    none = Profile.from_config({**EXAMPLE, "floor_monthly_cop": 0})
+
+    def note(profile: Profile) -> str:
+        return evaluate(p, company_id="a", sector="", tier=2, profile=profile,
+                        today=TODAY).salary_note
+
+    assert "≥ COP 3,000,000" in note(low)
+    assert "< COP 8,000,000" in note(high)
+    assert "≥" not in note(none) and "<" not in note(none)
+
+
+def test_trm_http_error_disables_the_gate_instead_of_crashing() -> None:
+    class Down:
+        def get_json(self, url: str) -> Any:
+            raise HttpError(503)
+
+        def post_json(self, url: str, body: dict[str, Any]) -> Any:
+            raise NotImplementedError
+
+        def get_text(self, url: str) -> str:
+            raise NotImplementedError
+
+    assert _gate(Profile.from_config(EXAMPLE), Down()) is None
+
+
+# ------------------------------------------------------------------ línea de comandos
+
+
+def test_cli_missing_profile_explains_how_to_create_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit, match=r"perfil\.ejemplo\.yaml"):
+        main(["buscar"])
+
+
+def test_cli_rejects_broken_yaml_and_invalid_profile(tmp_path: Path) -> None:
+    broken = tmp_path / "roto.yaml"
+    broken.write_text("years_relevant: [3\n", "utf-8")
+    with pytest.raises(SystemExit, match="no es YAML válido"):
+        main(["demo", "--perfil", str(broken)])
+    bad = tmp_path / "malo.yaml"
+    bad.write_text(yaml.safe_dump({**EXAMPLE, "years_relevant": "muchos"}), "utf-8")
+    with pytest.raises(SystemExit, match="Perfil inválido"):
+        main(["demo", "--perfil", str(bad)])
+
+
+def test_cli_rejects_non_positive_top(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["buscar", "--top", "0"])
+    assert exc.value.code == 2
+    assert "debe ser 1 o más" in capsys.readouterr().err
+
+
+def test_demo_runs_offline(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["demo"]) == 0
+    assert "No postular" in capsys.readouterr().out
+
+
+def test_corrupt_history_is_reported(tmp_path: Path) -> None:
+    runs = tmp_path / "search_runs"
+    runs.mkdir()
+    (runs / "2026-10-10T040000.json").write_text("{roto", "utf-8")
+    with pytest.raises(ValueError, match="dañado"):
+        SearchStore(tmp_path).previous_snapshot()
+    (runs / "2026-10-11T040000.json").write_text(json.dumps({"snapshot": {"a": {}}}), "utf-8")
+    assert SearchStore(tmp_path).previous_snapshot() == {"a": {}}
+
+
+# ------------------------------------------------------------------ reportes
+
+
+def test_report_escapes_hostile_text_and_links() -> None:
+    hostile = _posting(
+        title="<script>alert(1)</script>\n# Encabezado falso | celda",
+        company="Acme <img src=x onerror=alert(1)>",
+        official_job_url="javascript:alert(1)",
+    )
+    ev = evaluate(hostile, company_id="a", sector="", tier=2,
+                  profile=Profile.from_config(EXAMPLE), today=TODAY)
+    chk = Check(NO_VERIFICABLE, "<b>x</b>", hostile.official_job_url)
+    md = top_markdown([(ev, chk)], verified="2026-10-10 04:00", discarded=[])
+    assert "<script>" not in md and "<img" not in md and "<b>" not in md
+    assert "javascript:" not in md and "sin enlace" in md
+    assert "\n# Encabezado falso" not in md
+    assert md.startswith("# Las 1 mejores vacantes verificadas")
+
+
+def test_report_link_with_parentheses_stays_one_link() -> None:
+    p = _posting(official_job_url="https://example.com/job/(123) x")
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=Profile.from_config(EXAMPLE),
+                  today=TODAY)
+    text = "\n".join(_detail(1, ev, "hoy"))
+    assert "https://example.com/job/%28123%29%20x" in text

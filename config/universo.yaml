@@ -1,0 +1,483 @@
+# Universo de empresas que lee el radar. Ejemplo real: Colombia y roles globales de finanzas.
+#
+# Cada empresa declara sus fuentes. `verified_at` registra la última vez que la fuente se
+# leyó bien; las fuentes sin esa fecha también se leen: leerlas es la verificación.
+# La sección `boards` (al final) suma empresas por slug de Greenhouse, Ashby, Lever, etc.
+#
+# tier: 1 = empleador de élite (banca de inversión, multilaterales, consultoría estratégica,
+#           pagos y tecnología globales); 2 = gran empresa o líder local; 3 = resto.
+# method: greenhouse | ashby | lever | smartrecruiters | workable | recruitee | workday |
+#         oracle | successfactors | phenom | cornerstone | impactpool | hirehive | magneto |
+#         amazon | page (portal sin API legible: acceso + manual)
+# queries: búsquedas de texto para portales globales (Workday/Oracle/SuccessFactors).
+# status de una fuente `page`: se comprueba el acceso; las vacantes se revisan a mano o por
+#         Indeed. Nunca se registra como "sin vacantes".
+version: 1
+last_reviewed: "2026-10-09"
+
+defaults:
+  colombia_queries: [Colombia, Bogota, Medellin]
+
+companies:
+  # ------------------------------------------------------------------ pagos y tecnología
+  - {id: mastercard, name: Mastercard, sector: pagos, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.mastercard.com",
+     sources: [{method: workday, ref: "https://mastercard.wd1.myworkdayjobs.com/CorporateCareers", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: visa, name: Visa, sector: pagos, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://corporate.visa.com/en/jobs.html",
+     sources: [{method: workday, ref: "https://visa.wd5.myworkdayjobs.com/Visa", queries: [Colombia, Bogota], verified_at: "2026-10-10"}]}
+  - {id: amazon, name: Amazon, sector: tecnologia, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.amazon.jobs",
+     sources: [{method: amazon, ref: COL, verified_at: "2026-10-09"}]}
+  - {id: uber, name: Uber, sector: tecnologia, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.uber.com/careers",
+     sources: [{method: oracle, ref: "https://iaziqy.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/UberCareers", queries: [Colombia, Bogota]}]}
+  - {id: rappi, name: Rappi, sector: marketplace, country: CO, tier: 2, cities: [Bogotá], aliases: [RappiPay],
+     careers_url: "https://careers.rappi.com",
+     sources: [{method: page, ref: "https://careers.rappi.com"}]}
+  - {id: rapyd, name: Rapyd, sector: pagos, country: IL, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.rapyd.net/company/careers/",
+     sources: [{method: page, ref: "https://www.rapyd.net/company/careers-search/?location=bogota-colombia"}]}
+  - {id: mercadolibre, name: Mercado Libre, sector: marketplace, country: AR, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers-meli.mercadolibre.com/",
+     sources: [{method: page, ref: "https://careers-meli.mercadolibre.com/"}]}
+  - {id: globant, name: Globant, sector: tecnologia, country: AR, tier: 2, cities: [Bogotá, Medellín],
+     careers_url: "https://www.globant.com/careers", sources: [{method: page, ref: "https://career.globant.com/"}]}
+
+  # ------------------------------------------------------------------ banca global y mercados
+  - {id: citi, name: Citi, sector: banca_global, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://jobs.citi.com",
+     sources: [{method: workday, ref: "https://citi.wd5.myworkdayjobs.com/2", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: jpmorgan, name: JPMorgan Chase, sector: banca_global, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.jpmorgan.com",
+     sources: [{method: oracle, ref: "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: lazard, name: Lazard, sector: banca_inversion, country: US, tier: 1, cities: [],
+     careers_url: "https://www.lazard.com/careers/",
+     sources: [{method: oracle, ref: "https://icbpjb.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/LazardProfessionalCareers"}]}
+  - {id: morganstanley, name: Morgan Stanley, sector: banca_inversion, country: US, tier: 1, cities: [],
+     careers_url: "https://www.morganstanley.com/careers",
+     sources: [{method: workday, ref: "https://ms.wd5.myworkdayjobs.com/External", queries: [Colombia, "Latin America"]}]}
+  - {id: bofa, name: Bank of America, sector: banca_global, country: US, tier: 1, cities: [],
+     careers_url: "https://careers.bankofamerica.com",
+     sources: [{method: workday, ref: "https://ghr.wd1.myworkdayjobs.com/Lateral-US", queries: [Colombia, "Latin America"]}]}
+  - {id: goldman, name: Goldman Sachs, sector: banca_inversion, country: US, tier: 1, cities: [],
+     careers_url: "https://higher.gs.com", sources: [{method: page, ref: "https://higher.gs.com/"}]}
+  - {id: blackrock, name: BlackRock, sector: gestor_activos, country: US, tier: 1, cities: [],
+     careers_url: "https://careers.blackrock.com",
+     sources: [{method: workday, ref: "https://blackrock.wd1.myworkdayjobs.com/BlackRock_Professional", queries: [Colombia, "Latin America", Mexico], verified_at: "2026-10-09"}]}
+  - {id: spglobal, name: S&P Global, sector: rating, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.spglobal.com",
+     sources: [{method: workday, ref: "https://spgi.wd5.myworkdayjobs.com/SPGI_Careers", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: moodys, name: Moody's, sector: rating, country: US, tier: 1, cities: [],
+     careers_url: "https://careers.moodys.com", sources: [{method: page, ref: "https://careers.moodys.com/"}]}
+  - {id: marsh, name: Marsh McLennan, sector: servicios_financieros, country: US, tier: 2, cities: [Bogotá],
+     careers_url: "https://careers.marshmclennan.com",
+     sources: [{method: workday, ref: "https://mmc.wd1.myworkdayjobs.com/MMC", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: bloomberg, name: Bloomberg, sector: rating, country: US, tier: 1, cities: [],
+     careers_url: "https://www.bloomberg.com/company/careers/", sources: [{method: page, ref: "https://bloomberg.avature.net/careers"}]}
+  - {id: evercore, name: Evercore, sector: banca_inversion, country: US, tier: 1, cities: [],
+     careers_url: "https://www.evercore.com/careers/", sources: [{method: page, ref: "https://www.evercore.com/careers/"}]}
+  - {id: jefferies, name: Jefferies, sector: banca_inversion, country: US, tier: 1, cities: [],
+     careers_url: "https://www.jefferies.com/careers/", sources: [{method: page, ref: "https://www.jefferies.com/careers/"}]}
+
+  # ------------------------------------------------------------------ multilaterales
+  - {id: imf, name: FMI (IMF), sector: multilateral, country: INT, tier: 1, cities: [],
+     careers_url: "https://www.imf.org/en/About/Recruitment",
+     sources: [{method: workday, ref: "https://imf.wd5.myworkdayjobs.com/IMF", verified_at: "2026-10-09"}]}
+  - {id: worldbank, name: Banco Mundial (WBG/IFC/MIGA), sector: multilateral, country: INT, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.worldbank.org/en/about/careers",
+     sources: [{method: cornerstone, ref: "https://worldbankgroup.csod.com/ux/ats/careersite/1/home?c=worldbankgroup", verified_at: "2026-10-10"}]}
+  - {id: idb, name: BID (IDB) e IDB Invest, sector: multilateral, country: INT, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.iadb.org/en/who-we-are/careers", sources: [{method: impactpool, ref: "https://iadb.impactpool.org", verified_at: "2026-10-10"}]}
+  - {id: caf, name: CAF, sector: multilateral, country: INT, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.caf.com/es/trabaja-con-nosotros/", sources: [{method: page, ref: "https://www.caf.com/es/trabaja-con-nosotros/"}]}
+  - {id: undp, name: PNUD (UNDP), sector: multilateral, country: INT, tier: 1, cities: [Bogotá],
+     careers_url: "https://jobs.undp.org", sources: [{method: page, ref: "https://jobs.undp.org/"}]}
+  - {id: gates, name: Fundación Gates, sector: fundacion, country: US, tier: 1, cities: [],
+     careers_url: "https://www.gatesfoundation.org/about/careers",
+     sources: [{method: workday, ref: "https://gatesfoundation.wd1.myworkdayjobs.com/Gates", verified_at: "2026-10-09"}]}
+  - {id: bis, name: BIS, sector: multilateral, country: INT, tier: 1, cities: [],
+     careers_url: "https://www.bis.org/careers/index.htm", sources: [{method: page, ref: "https://www.bis.org/careers/index.htm"}]}
+
+  # ------------------------------------------------------------------ consultoría
+  - {id: mckinsey, name: McKinsey & Company, sector: consultoria, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.mckinsey.com/careers/search-jobs", sources: [{method: page, ref: "https://www.mckinsey.com/careers/search-jobs"}]}
+  - {id: bcg, name: Boston Consulting Group, sector: consultoria, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.bcg.com", sources: [{method: phenom, ref: "https://careers.bcg.com/global/en", queries: [Colombia], verified_at: "2026-10-10"}]}
+  - {id: bain, name: Bain & Company, sector: consultoria, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.bain.com/careers/", sources: [{method: page, ref: "https://www.bain.com/careers/find-a-role/"}]}
+  - {id: kearney, name: Kearney, sector: consultoria, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.kearney.com/careers", sources: [{method: page, ref: "https://www.kearney.com/careers"}]}
+  - {id: accenture, name: Accenture, sector: consultoria, country: IE, tier: 2, cities: [Bogotá, Medellín],
+     careers_url: "https://www.accenture.com/co-es/careers",
+     sources: [{method: workday, ref: "https://accenture.wd103.myworkdayjobs.com/AccentureCareers", queries: [Colombia, Bogota]}, {method: magneto, ref: accenture, verified_at: "2026-10-09"}]}
+  - {id: kpmg, name: KPMG Colombia, sector: consultoria, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "https://kpmg.com/co/es/home/careers.html", sources: [{method: magneto, ref: kpmg, verified_at: "2026-10-09"}]}
+  - {id: deloitte, name: Deloitte Colombia, sector: consultoria, country: CO, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.deloitte.com/co/es/careers.html", sources: [{method: page, ref: "https://www.deloitte.com/co/es/careers.html"}]}
+  - {id: ey, name: EY Colombia, sector: consultoria, country: CO, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.ey.com/es_co/careers", sources: [{method: successfactors, ref: "https://careers.ey.com", queries: [Bogota, Colombia], verified_at: "2026-10-10"}]}
+  - {id: pwc, name: PwC Colombia, sector: consultoria, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.pwc.com/co/es/careers.html", sources: [{method: page, ref: "https://www.pwc.com/co/es.html"}]}
+
+  # ------------------------------------------------------------------ consumo masivo y salud
+  - {id: jnj, name: Johnson & Johnson, sector: farma, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.careers.jnj.com",
+     sources: [{method: workday, ref: "https://jj.wd5.myworkdayjobs.com/JJ", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: mondelez, name: Mondelez, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.mondelezinternational.com/careers/",
+     sources: [{method: workday, ref: "https://mdlz.wd3.myworkdayjobs.com/External", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: kraftheinz, name: Kraft Heinz, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.kraftheinz.com",
+     sources: [{method: workday, ref: "https://heinz.wd1.myworkdayjobs.com/KraftHeinz_Careers", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: mars, name: Mars, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.mars.com",
+     sources: [{method: workday, ref: "https://mars.wd3.myworkdayjobs.com/External", queries: [Colombia, Bogota], verified_at: "2026-10-09"}]}
+  - {id: unilever, name: Unilever, sector: consumo_masivo, country: GB, tier: 1, cities: [Bogotá, Cali],
+     careers_url: "https://careers.unilever.com",
+     sources: [{method: workday, ref: "https://unilever.wd3.myworkdayjobs.com/Unilever_Experienced_Professionals", queries: [Colombia, Bogota]}]}
+  - {id: kimberlyclark, name: Kimberly-Clark, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.kimberly-clark.com/en/Colombia",
+     sources: [{method: workday, ref: "https://kimberlyclark.wd1.myworkdayjobs.com/GLOBAL", queries: [Colombia, Bogota]}]}
+  - {id: diageo, name: Diageo, sector: consumo_masivo, country: GB, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.diageo.com/en/careers",
+     sources: [{method: workday, ref: "https://diageo.wd3.myworkdayjobs.com/Diageo_Careers", queries: [Colombia, Bogota]}]}
+  - {id: abbott, name: Abbott, sector: farma, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.jobs.abbott",
+     sources: [{method: workday, ref: "https://abbott.wd5.myworkdayjobs.com/abbottcareers", queries: [Colombia, Bogota]}]}
+  - {id: pfizer, name: Pfizer, sector: farma, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.pfizer.com/about/careers",
+     sources: [{method: workday, ref: "https://pfizer.wd1.myworkdayjobs.com/PfizerCareers", queries: [Colombia, Bogota]}]}
+  - {id: pepsico, name: PepsiCo, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.pepsicojobs.com", sources: [{method: page, ref: "https://www.pepsicojobs.com/main/jobs?location=Colombia"}]}
+  - {id: pg, name: Procter & Gamble, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.pgcareers.com", sources: [{method: page, ref: "https://www.pgcareers.com/"}]}
+  - {id: nestle, name: Nestlé, sector: consumo_masivo, country: CH, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.nestle.com.co/trabaja-con-nosotros", sources: [{method: page, ref: "https://www.nestle.com/jobs"}]}
+  - {id: danone, name: Danone, sector: consumo_masivo, country: FR, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.danone.com", sources: [{method: page, ref: "https://careers.danone.com/"}]}
+  - {id: colgate, name: Colgate-Palmolive, sector: consumo_masivo, country: US, tier: 1, cities: [Bogotá, Cali],
+     careers_url: "https://jobs.colgate.com", sources: [{method: successfactors, ref: "https://jobs.colgate.com", queries: [Colombia]}]}
+  - {id: abinbev, name: AB InBev / Bavaria, sector: consumo_masivo, country: BE, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.bavaria.co/talento", sources: [{method: page, ref: "https://www.bavaria.co/talento"}]}
+  - {id: cocacolafemsa, name: Coca-Cola FEMSA, sector: consumo_masivo, country: MX, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.coca-colafemsa.com", sources: [{method: magneto, ref: coca-cola-femsa, verified_at: "2026-10-09"}]}
+
+  # ------------------------------------------------------------------ banca y finanzas en Colombia
+  - {id: bancolombia, name: Grupo Bancolombia, sector: banca, country: CO, tier: 2, cities: [Medellín, Bogotá],
+     careers_url: "https://empleo.grupobancolombia.com/bancolombia",
+     sources: [{method: successfactors, ref: "https://empleo.grupobancolombia.com", verified_at: "2026-10-09"}]}
+  - {id: banrep, name: Banco de la República, sector: banca_central, country: CO, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.banrep.gov.co/es/trabaje-con-nosotros",
+     sources: [{method: magneto, ref: banrep, verified_at: "2026-10-09"}]}
+  - {id: davivienda, name: Davivienda, sector: banca, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.trabajarendavivienda.com", sources: [{method: magneto, ref: davivienda, verified_at: "2026-10-09"}]}
+  - {id: aval, name: Grupo Aval (Banco de Bogotá, Occidente, Popular, AV Villas, Porvenir, Corficolombiana), sector: banca, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.grupoaval.com", sources: [{method: magneto, ref: banco-de-occidente, verified_at: "2026-10-09"}, {method: magneto, ref: porvenir, verified_at: "2026-10-09"}]}
+  - {id: btg, name: BTG Pactual, sector: banca_inversion, country: BR, tier: 1, cities: [Bogotá],
+     careers_url: "https://carreiras.btgpactual.com", sources: [{method: greenhouse, ref: btgpactual, verified_at: "2026-10-09"}, {method: greenhouse, ref: btgpactualla, verified_at: "2026-10-09"}]}
+  - {id: credicorp, name: Credicorp Capital, sector: banca_inversion, country: PE, tier: 1, cities: [Bogotá],
+     careers_url: "", sources: [{method: hirehive, ref: "https://credicorp.hirehive.com", verified_at: "2026-10-10"}]}
+  - {id: sura, name: Grupo Sura / SURA AM, sector: grupo_financiero, country: CO, tier: 2, cities: [Medellín, Bogotá], careers_url: "https://empleos.sura-am.com", sources: [{method: successfactors, ref: "https://empleos.sura-am.com", verified_at: "2026-10-09"}, {method: magneto, ref: seguros-sura, verified_at: "2026-10-09"}]}
+  - {id: proteccion, name: Protección, sector: pensiones, country: CO, tier: 2, cities: [Medellín, Bogotá],
+     careers_url: "https://www.proteccion.com/wps/portal/proteccion/web/home/trabaje-con-nosotros",
+     sources: [{method: magneto, ref: proteccion, verified_at: "2026-10-09"}]}
+  - {id: colfondos, name: Colfondos, sector: pensiones, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.colfondos.com.co/trabaja-con-nosotros", sources: [{method: magneto, ref: colfondos, verified_at: "2026-10-09"}]}
+  - {id: bbva, name: BBVA Colombia, sector: banca, country: ES, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: scotiabank, name: Scotiabank Colpatria, sector: banca, country: CA, tier: 2, cities: [Bogotá], careers_url: "https://jobs.scotiabank.com", sources: [{method: successfactors, ref: "https://jobs.scotiabank.com", queries: [Colombia], verified_at: "2026-10-09"}]}
+  - {id: itau, name: Itaú Colombia, sector: banca, country: BR, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: larrainvial, name: LarrainVial, sector: banca_inversion, country: CL, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: bvc, name: bvc / nuam, sector: bolsa, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: bancoldex, name: Bancóldex, sector: banca_desarrollo, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: findeter, name: Findeter, sector: banca_desarrollo, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: fdn, name: Financiera de Desarrollo Nacional, sector: banca_desarrollo, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: superfinanciera, name: Superintendencia Financiera, sector: regulador, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+
+  # ------------------------------------------------------------------ grandes empresas colombianas
+  - {id: ecopetrol, name: Ecopetrol, sector: energia, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: [{method: page, ref: "https://www.ecopetrol.com.co/wps/portal/Home/es/trabajeconnosotros"}]}
+  - {id: isa, name: ISA, sector: energia, country: CO, tier: 2, cities: [Medellín], careers_url: "", sources: [{method: magneto, ref: isa, verified_at: "2026-10-09"}]}
+  - {id: epm, name: EPM, sector: energia, country: CO, tier: 2, cities: [Medellín], careers_url: "", sources: []}
+  - {id: argos, name: Grupo Argos / Cementos Argos, sector: industria, country: CO, tier: 2, cities: [Medellín, Bogotá], careers_url: "", sources: []}
+  - {id: nutresa, name: Grupo Nutresa, sector: consumo_masivo, country: CO, tier: 2, cities: [Medellín, Bogotá], careers_url: "", sources: []}
+  - {id: exito, name: Grupo Éxito, sector: retail, country: CO, tier: 2, cities: [Medellín, Bogotá], careers_url: "", sources: [{method: magneto, ref: grupo-exito, verified_at: "2026-10-09"}]}
+  - {id: terpel, name: Terpel, sector: energia, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: [{method: magneto, ref: terpel, verified_at: "2026-10-09"}]}
+  - {id: celsia, name: Celsia, sector: energia, country: CO, tier: 2, cities: [Medellín, Cali], careers_url: "", sources: []}
+  - {id: promigas, name: Promigas, sector: energia, country: CO, tier: 2, cities: [Barranquilla], careers_url: "", sources: []}
+  - {id: avianca, name: Avianca, sector: aerolinea, country: CO, tier: 2, cities: [Bogotá], careers_url: "", sources: []}
+  - {id: postobon, name: Postobón, sector: consumo_masivo, country: CO, tier: 2, cities: [Medellín, Bogotá], careers_url: "", sources: [{method: magneto, ref: postobon, verified_at: "2026-10-09"}]}
+
+  # ------------------------------------------------------------------ ronda 2 (2026-10-09)
+  - {id: bayer, name: "Bayer", sector: farma, country: DE, tier: 1, cities: [Bogotá],
+     careers_url: "https://jobs.bayer.com", sources: [{method: successfactors, ref: "https://jobs.bayer.com", queries: [Colombia], verified_at: "2026-10-09"}]}
+  - {id: dlocal, name: "dLocal", sector: pagos, country: UY, tier: 2, cities: [Bogotá],
+     careers_url: "https://www.dlocal.com/careers/", sources: [{method: lever, ref: dlocal, verified_at: "2026-10-09"}]}
+  - {id: payoneer, name: "Payoneer", sector: pagos, country: US, tier: 3, cities: [],
+     careers_url: "https://www.payoneer.com/careers/", sources: [{method: greenhouse, ref: payoneer, verified_at: "2026-10-09"}]}
+  - {id: xepelin, name: "Xepelin", sector: fintech, country: CL, tier: 3, cities: [],
+     careers_url: "https://jobs.lever.co/xepelin", sources: [{method: lever, ref: xepelin, verified_at: "2026-10-09"}]}
+  - {id: fintual, name: "Fintual", sector: fintech, country: CL, tier: 3, cities: [],
+     careers_url: "https://jobs.lever.co/fintual", sources: [{method: lever, ref: fintual, verified_at: "2026-10-09"}]}
+  - {id: kueski, name: "Kueski", sector: fintech, country: MX, tier: 3, cities: [],
+     careers_url: "https://jobs.ashbyhq.com/kueski", sources: [{method: ashby, ref: kueski, verified_at: "2026-10-09"}]}
+  - {id: oyster, name: "Oyster HR", sector: remoto_global, country: US, tier: 3, cities: [],
+     careers_url: "https://jobs.ashbyhq.com/oyster", sources: [{method: ashby, ref: oyster, verified_at: "2026-10-09"}]}
+  - {id: mibanco, name: "Mibanco Colombia (Credicorp)", sector: banca, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: mibanco, verified_at: "2026-10-09"}]}
+  - {id: bancoagrario, name: "Banco Agrario", sector: banca, country: CO, tier: 2, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: banco-agrario, verified_at: "2026-10-09"}]}
+  - {id: bancamia, name: "Bancamía", sector: banca, country: CO, tier: 3, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: bancamia, verified_at: "2026-10-09"}]}
+  - {id: allianz, name: "Allianz Colombia", sector: seguros, country: DE, tier: 2, cities: [Bogotá],
+     careers_url: "", sources: []}
+  - {id: tigo, name: "Tigo (Millicom)", sector: telecom, country: CO, tier: 2, cities: [Bogotá, Medellín],
+     careers_url: "", sources: []}
+  - {id: colombina, name: "Colombina", sector: consumo_masivo, country: CO, tier: 2, cities: [Cali],
+     careers_url: "", sources: [{method: magneto, ref: colombina, verified_at: "2026-10-09"}]}
+  - {id: crystal, name: "Crystal", sector: consumo_masivo, country: CO, tier: 3, cities: [Medellín],
+     careers_url: "", sources: [{method: magneto, ref: crystal, verified_at: "2026-10-09"}]}
+  - {id: homecenter, name: "Homecenter (Sodimac)", sector: retail, country: CO, tier: 3, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: homecenter, verified_at: "2026-10-09"}]}
+  - {id: d1, name: "Tiendas D1", sector: retail, country: CO, tier: 3, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: d1, verified_at: "2026-10-09"}]}
+  - {id: ara, name: "Tiendas Ara (Jerónimo Martins)", sector: retail, country: PT, tier: 3, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: jeronimo-martins, verified_at: "2026-10-09"}]}
+  - {id: compensar, name: "Compensar", sector: servicios, country: CO, tier: 3, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: compensar, verified_at: "2026-10-09"}]}
+  - {id: keralty, name: "Keralty (Sanitas)", sector: salud, country: CO, tier: 3, cities: [Bogotá],
+     careers_url: "", sources: [{method: magneto, ref: keralty, verified_at: "2026-10-09"}]}
+  - {id: magneto_busqueda, name: "Magneto (búsqueda por cargo)", sector: agregador, country: CO, tier: 3, cities: [],
+     careers_url: "https://www.magneto365.com/co", sources: [{method: magneto, ref: "q:analista-financiero", verified_at: "2026-10-09"}, {method: magneto, ref: "q:economista", verified_at: "2026-10-09"}, {method: magneto, ref: "q:consultor-financiero", verified_at: "2026-10-09"}, {method: magneto, ref: "q:gerente-financiero", verified_at: "2026-10-09"}]}
+  - {id: sbd, name: "Stanley Black & Decker", sector: industria, country: US, tier: 1, cities: [Medellín, Bogotá],
+     careers_url: "https://www.stanleyblackanddecker.com/careers", sources: [{method: workday, ref: "https://sbdinc.wd1.myworkdayjobs.com/Stanley_Black_Decker_Career_Site", queries: [Colombia], verified_at: "2026-10-10"}]}
+  - {id: didi, name: "DiDi Global", sector: tecnologia, country: CN, tier: 2, cities: [Bogotá],
+     careers_url: "https://careers.didiglobal.com", sources: [{method: page, ref: "https://careers.didiglobal.com/"}]}
+  - {id: oecd, name: "OCDE (OECD)", sector: multilateral, country: INT, tier: 1, cities: [],
+     careers_url: "https://oecd.impactpool.org", sources: [{method: impactpool, ref: "https://oecd.impactpool.org", verified_at: "2026-10-10"}]}
+  - {id: fitch, name: "Fitch Ratings", sector: rating, country: US, tier: 1, cities: [Bogotá],
+     careers_url: "https://careers.fitch.group", sources: [{method: successfactors, ref: "https://careers.fitch.group", queries: [Bogota], verified_at: "2026-10-10"}]}
+  - {id: paypal, name: "PayPal", sector: pagos, country: US, tier: 1, cities: [],
+     careers_url: "https://careers.pypl.com", sources: [{method: workday, ref: "https://paypal.wd1.myworkdayjobs.com/jobs", queries: [Colombia, "Latin America"], verified_at: "2026-10-10"}]}
+  - {id: santander, name: "Santander", sector: banca_global, country: ES, tier: 1, cities: [Bogotá],
+     careers_url: "https://www.santander.com/en/careers", sources: [{method: workday, ref: "https://santander.wd3.myworkdayjobs.com/SantanderCareers", queries: [Colombia], verified_at: "2026-10-10"}]}
+  - {id: blackstone, name: "Blackstone", sector: gestor_activos, country: US, tier: 1, cities: [],
+     careers_url: "https://www.blackstone.com/careers/", sources: [{method: workday, ref: "https://blackstone.wd1.myworkdayjobs.com/Blackstone_Careers", queries: ["Latin America", Colombia, Mexico], verified_at: "2026-10-10"}]}
+  - {id: carlyle, name: "Carlyle", sector: gestor_activos, country: US, tier: 1, cities: [],
+     careers_url: "https://www.carlyle.com/careers", sources: [{method: workday, ref: "https://carlyle.wd1.myworkdayjobs.com/Carlyle", queries: ["Latin America", Colombia, Mexico], verified_at: "2026-10-10"}]}
+  - {id: apollo, name: "Apollo Global Management", sector: gestor_activos, country: US, tier: 1, cities: [],
+     careers_url: "https://www.apollo.com/careers", sources: [{method: workday, ref: "https://athene.wd5.myworkdayjobs.com/Apollo_Careers", queries: ["Latin America", Colombia, Mexico], verified_at: "2026-10-10"}]}
+  - {id: generalatlantic, name: "General Atlantic", sector: gestor_activos, country: US, tier: 1, cities: [],
+     careers_url: "https://www.generalatlantic.com/careers/", sources: [{method: greenhouse, ref: generalatlantic, verified_at: "2026-10-10"}]}
+
+# Boards de ATS con API pública, por slug. Solo se leen los que tienen verified_at.
+boards:
+  greenhouse:
+  - slug: anthropic
+    name: Anthropic
+    verified_at: '2026-10-07'
+  - slug: stripe
+    name: Stripe
+    verified_at: '2026-10-07'
+  - slug: coinbase
+    name: Coinbase
+    verified_at: '2026-10-07'
+  - slug: databricks
+    name: Databricks
+    verified_at: '2026-10-07'
+  - slug: datadog
+    name: Datadog
+    verified_at: '2026-10-07'
+  - slug: brex
+    name: Brex
+    verified_at: '2026-10-07'
+  - slug: mercury
+    name: Mercury
+    verified_at: '2026-10-07'
+  - slug: figma
+    name: Figma
+    verified_at: '2026-10-07'
+  - slug: gitlab
+    name: GitLab
+    verified_at: '2026-10-07'
+  - slug: airbnb
+    name: Airbnb
+    verified_at: '2026-10-07'
+  - slug: scaleai
+    name: Scale AI
+    verified_at: '2026-10-07'
+  - slug: wise
+    name: Wise
+    verified_at: '2026-10-07'
+  - slug: ebanx
+    name: EBANX
+    verified_at: '2026-10-07'
+  - slug: bold
+    name: Bold
+    verified_at: '2026-10-07'
+  - slug: clara
+    name: Clara
+    verified_at: '2026-10-07'
+  - slug: sezzle
+    name: Sezzle
+    verified_at: '2026-10-07'
+  - slug: twilio
+    name: Twilio
+    verified_at: '2026-10-07'
+  - slug: cabify
+    name: Cabify
+    verified_at: '2026-10-07'
+  - slug: turing
+    name: Turing
+    verified_at: '2026-10-07'
+  - slug: wizeline
+    name: Wizeline
+    verified_at: '2026-10-07'
+  - slug: rebtel
+    name: Rebtel
+    verified_at: '2026-10-07'
+  - slug: remote
+    name: Remote
+    verified_at: '2026-10-07'
+  - slug: platacard
+    name: Plata Card
+    verified_at: '2026-10-08'
+  - slug: factored
+    name: Factored
+    verified_at: '2026-10-08'
+  - slug: altisales
+    name: AltiSales
+    verified_at: '2026-10-08'
+  - slug: automatticcareers
+    name: Automattic
+    verified_at: '2026-10-08'
+  - slug: able
+    name: Able
+    verified_at: '2026-10-08'
+  - slug: sagansystems
+    name: Gladly
+    verified_at: '2026-10-08'
+  - slug: walkersands
+    name: Walker Sands
+    verified_at: '2026-10-08'
+  - slug: monks
+    name: Monks
+    verified_at: '2026-10-08'
+  - slug: wppmedia
+    name: WPP Media
+    verified_at: '2026-10-08'
+  - slug: kaseya
+    name: Kaseya
+    verified_at: '2026-10-08'
+  - slug: octus
+    name: Octus
+    verified_at: '2026-10-08'
+  - slug: cobre
+    name: Cobre
+    verified_at: '2026-10-08'
+  - slug: backblaze
+    name: Backblaze
+    verified_at: '2026-10-08'
+  ashby:
+  - slug: elevenlabs
+    name: ElevenLabs
+    verified_at: '2026-10-07'
+  - slug: addi
+    name: Addi
+    verified_at: '2026-10-07'
+  - slug: nubank
+    name: Nubank
+    verified_at: '2026-10-07'
+  - slug: simetrik
+    name: Simetrik
+    verified_at: '2026-10-07'
+  - slug: belvo
+    name: Belvo
+    verified_at: '2026-10-07'
+  - slug: kiwi
+    name: Kiwi
+    verified_at: '2026-10-07'
+  - slug: go-nimbly
+    name: Go Nimbly
+    verified_at: '2026-10-08'
+  - slug: growthx%20ai
+    name: GrowthX AI
+    verified_at: '2026-10-08'
+  - slug: kraken.com
+    name: Kraken
+    verified_at: '2026-10-08'
+  - slug: gratia
+    name: Gratia
+    verified_at: '2026-10-08'
+  - slug: doctoralia-colombia
+    name: Doctoralia Colombia
+    verified_at: '2026-10-08'
+  lever:
+  - slug: yuno
+    name: Yuno
+    verified_at: '2026-10-07'
+  - slug: airtm
+    name: Airtm
+    verified_at: '2026-10-07'
+  - slug: bluecoding
+    name: Blue Coding
+    verified_at: '2026-10-07'
+  - slug: dlocal
+    name: dLocal
+    verified_at: '2026-10-07'
+  - slug: kavak
+    name: Kavak
+    verified_at: '2026-10-07'
+  - slug: nium
+    name: Nium
+    verified_at: '2026-10-07'
+  - slug: toptal
+    name: Toptal
+    verified_at: '2026-10-07'
+  - slug: lahaus
+    name: La Haus
+    verified_at: '2026-10-07'
+  - slug: tryjeeves
+    name: Jeeves
+    verified_at: '2026-10-08'
+  - slug: doola
+    name: doola
+    verified_at: '2026-10-08'
+  - slug: coupa
+    name: Coupa
+    verified_at: '2026-10-08'
+  - slug: payjoy
+    name: PayJoy
+    verified_at: '2026-10-08'
+  - slug: despegar
+    name: Despegar
+    verified_at: '2026-10-08'
+  - slug: ciandt
+    name: CI&T
+    verified_at: '2026-10-08'
+  smartrecruiters:
+  - slug: NielsenIQ
+    name: NielsenIQ
+    verified_at: '2026-10-08'
+  - slug: Experian
+    name: Experian (DataCrédito)
+    verified_at: '2026-10-08'
+  workable:
+  - slug: pavago
+    name: Pavago
+    verified_at: '2026-10-08'
+  - slug: ten-group
+    name: Ten Lifestyle Group
+    verified_at: '2026-10-08'
+  - slug: platzi
+    name: Platzi
+    verified_at: '2026-10-08'
+  - slug: remote-talent-latam
+    name: Remote Talent LATAM
+    verified_at: '2026-10-08'
+  - slug: partner-one-capital
+    name: PartnerOne Capital
+    verified_at: '2026-10-08'
+  recruitee:
+  - slug: distribusion
+    name: Distribusion
+    verified_at: '2026-10-08'

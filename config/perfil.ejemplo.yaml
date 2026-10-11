@@ -1,0 +1,54 @@
+# Perfil de ejemplo (ficticio: no corresponde a ninguna persona real).
+# Copie este archivo a config/perfil.yaml y póngale lo suyo; perfil.yaml no se versiona.
+# Solo lo que pueda sostener en una entrevista: el radar compara los requisitos de cada
+# aviso con lo que aquí está escrito, y una brecha honesta vale más que un falso "cumple".
+
+years_relevant: 2            # años de experiencia relevante que declara en formularios
+english: "B2"                # nivel autoevaluado; si no está certificado, dígalo
+degree: "Administración de Empresas"
+has_masters: false
+certifications: []           # p. ej. [cfa, frm]; vacío si no tiene ninguna
+tools: [excel, sql, tableau, "google sheets"]
+floor_monthly_cop: 5500000   # piso salarial mensual; con salario publicado en USD usa la TRM oficial
+
+# Fortalezas: si el aviso menciona el patrón (expresión regular), la razón aparece como
+# motivo de encaje.
+strengths:
+  - {pattern: '\b(forecast\w*|pron[oó]stic\w*|presupuest\w*|budget\w*)\b', reason: "arma presupuestos y pronósticos mensuales"}
+  - {pattern: '\b(dashboard\w*|tableros?|tableau|reporting)\b', reason: "construye tableros de seguimiento para gerencia"}
+  - {pattern: '\b(business case\w*|casos? de negocio)\b', reason: "ha preparado casos de negocio de proyectos internos"}
+  - {pattern: '\b(stakeholder\w*|negociaci[oó]n|negotiat\w*)\b', reason: "coordina áreas y negocia con proveedores"}
+
+# Gustos: suman o restan puntos. No borran vacantes; solo cambian el orden.
+preferences:
+  sector_points:
+    tecnologia: 12
+    pagos: 12
+    consultoria: 10
+    banca_global: 8
+    multilateral: 6
+    rating: 6
+    consumo_masivo: -10
+    retail: -15
+  family_points:
+    fpa: 10
+    strategy: 8
+    pricing_revenue: 6
+    data: 4
+    treasury_risk: -4
+  # Excepción a la penalización de consumo masivo y retail: si el empleador es de élite
+  # (tier ≤ min_tier), la familia está en la lista y el título casa con el patrón,
+  # la penalización baja a -5.
+  cpg_exception:
+    min_tier: 1
+    families: [fpa, strategy]
+    title_pattern: '\b(senior|lead|manager)\b'
+
+# Meta: por qué cada sector o familia acerca a la meta. Aparece en el reporte de cada vacante.
+meta:
+  por_defecto: "experiencia útil, aunque no apunta directo a la meta"
+  notas:
+    tecnologia: "finanzas en una empresa tecnológica: el destino declarado"
+    pagos: "modelos de ingreso y métricas de una red de pagos"
+    consultoria: "consultoría: exposición a muchos negocios en poco tiempo"
+    fpa: "planeación financiera: el centro de la meta"

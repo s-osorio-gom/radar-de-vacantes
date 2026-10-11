@@ -1,0 +1,52 @@
+[project]
+name = "radar-de-vacantes"
+version = "1.0.0"
+description = "Radar de vacantes de solo lectura: lee portales públicos de empleo, evalúa cada aviso contra tu perfil con reglas determinísticas y entrega un Top 20 verificado."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "pyyaml>=6.0",
+    "truststore>=0.10",
+]
+
+[project.scripts]
+radar = "radar_vacantes.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "pyright>=1.1.380"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/radar_vacantes"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "DTZ", "T20", "SIM", "BLE", "RUF"]
+ignore = [
+    "RUF001",  # el texto en español usa guiones y signos tipográficos legítimos
+    "RUF002",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["T20"]
+"src/radar_vacantes/cli.py" = ["T20", "E501"]
+"src/radar_vacantes/{evaluate,report,sources}.py" = ["E501"]  # patrones regex y frases del reporte
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+reportMissingImports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"

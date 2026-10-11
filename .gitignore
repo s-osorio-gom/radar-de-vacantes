@@ -1,0 +1,13 @@
+# Su perfil y sus resultados son suyos: no se versionan.
+config/perfil.yaml
+salida/
+*.local.yaml
+
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+.DS_Store

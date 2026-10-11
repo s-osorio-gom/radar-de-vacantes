@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Radar de vacantes todos los días a las 4:00 a. m., hora del Mac.
+  Si el Mac estaba dormido, launchd lo corre al despertar.
+  1. Reemplace RUTA_DEL_REPO por la ruta absoluta del repositorio (dos veces).
+  2. cp scripts/com.radar.vacantes.plist ~/Library/LaunchAgents/
+  3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.radar.vacantes.plist
+  Quitar: launchctl bootout gui/$(id -u)/com.radar.vacantes
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.radar.vacantes</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>RUTA_DEL_REPO/scripts/radar_diario.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>RUTA_DEL_REPO</string>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer></dict>
+</dict>
+</plist>
