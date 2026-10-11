@@ -125,3 +125,45 @@ def test_a_200_with_an_error_body_does_not_close_previous_postings() -> None:
                         stamp="b", previous=first.snapshot)
     assert second.results[0].outcome is Outcome.ERROR
     assert second.history["closed"] == []
+
+
+class _Json:
+    """Cliente que decodifica el texto recibido como lo hace el cliente real."""
+
+    def __init__(self, ok: str, broken: str) -> None:
+        self.ok, self.broken = ok, broken
+
+    def get_json(self, url: str) -> Any:
+        return json.loads(self.broken if "/broken/" in url else self.ok)
+
+    def post_json(self, url: str, body: dict[str, Any]) -> Any:
+        raise HttpError(404)
+
+    def get_text(self, url: str) -> str:
+        raise HttpError(404)
+
+
+@pytest.mark.parametrize("failure", [IndexError("boom"), RecursionError(), ZeroDivisionError()])
+def test_unexpected_exception_is_an_error_not_a_crash(failure: BaseException) -> None:
+    http = Fixed(failure)
+    res = read_source(SourceSpec("a", "Acme", "greenhouse", "acme"), http, "x",
+                      sleep=lambda _: None)
+    assert res.outcome is Outcome.ERROR and type(failure).__name__ in res.detail
+    assert http.calls == 1
+
+
+def test_one_hostile_source_does_not_stop_the_run() -> None:
+    good = SourceSpec("acme", "Acme", "greenhouse", "acme")
+    bad = SourceSpec("rota", "Rota", "greenhouse", "broken")
+    companies = [
+        Company("acme", "Acme", "pagos", "CO", 1, (), "", (good,), ()),
+        Company("rota", "Rota", "pagos", "CO", 1, (), "", (bad,), ()),
+    ]
+    ok = json.dumps({"jobs": [{"id": 1, "title": "Financial Analyst",
+                               "absolute_url": "https://x.co/1", "location": {"name": "Bogotá"}}]})
+    run = run_search(companies, _Json(ok, "[" * 200_000), profile=PROFILE,
+                     today=date(2026, 10, 10), seen_at="2026-10-10T00:00:00+00:00", stamp="a",
+                     previous={})
+    outcomes = {r.spec.company_id: r.outcome for r in run.results}
+    assert outcomes == {"acme": Outcome.OK, "rota": Outcome.ERROR}
+    assert len(run.evaluations) == 1

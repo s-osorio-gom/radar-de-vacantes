@@ -1072,6 +1072,12 @@ def read_source(
             if outcome is not Outcome.ERROR or isinstance(exc, FormatError) or attempt == retries:
                 break
             sleep(2.0 * (attempt + 1))
+        except Exception as exc:  # noqa: BLE001 — un conector roto no tumba las demás fuentes
+            # p. ej. RecursionError de un JSON hostil muy anidado: no es pasajero.
+            result = SourceResult(
+                spec, Outcome.ERROR, detail=f"fallo inesperado del conector: {type(exc).__name__}"
+            )
+            break
     if result.outcome is Outcome.ERROR and retried:
         result.detail += f" (tras {retried} reintentos)"
     return result
