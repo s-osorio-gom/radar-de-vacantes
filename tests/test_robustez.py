@@ -421,7 +421,12 @@ def test_entry_track_and_cpg_sectors_come_from_the_profile() -> None:
     ("prefs", "message"),
     [({"entry_track_sectors": ["consultoria"]}, "entry_track_sectors"),
      ({"entry_track_sectors": {"consultoria": 3}}, "entry_track_sectors.consultoria"),
-     ({"cpg_exception": {"sectors": "retail"}}, "cpg_exception.sectors")],
+     ({"cpg_exception": {"sectors": "retail"}}, "cpg_exception.sectors"),
+     # null no apaga en silencio: apagar es {} o [] explícito.
+     ({"entry_track_sectors": None}, "entry_track_sectors"),
+     ({"entry_track_sectors": {1: "x"}}, "entry_track_sectors"),
+     ({"cpg_exception": {"sectors": None}}, "cpg_exception.sectors"),
+     ({"cpg_exception": {"sectors": [None, {"a": 1}]}}, "cpg_exception.sectors")],
 )
 def test_invalid_track_preferences_name_the_field(prefs: dict[str, Any], message: str) -> None:
     with pytest.raises(ProfileError, match=message):

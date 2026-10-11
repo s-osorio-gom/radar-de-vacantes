@@ -96,11 +96,7 @@ class Profile:
             ),
             floor_monthly_cop=_int(cfg, "floor_monthly_cop", default=0),
             entry_track_sectors=_labels(prefs, "entry_track_sectors"),
-            cpg_sectors=(
-                frozenset(str(x) for x in _seq(exc, "sectors", "preferences.cpg_exception."))
-                if "sectors" in exc
-                else None
-            ),
+            cpg_sectors=_sectors(exc),
         )
 
 
@@ -203,14 +199,30 @@ def english_covers_fluent(profile: Profile) -> bool:
 
 
 def _labels(prefs: dict[str, Any], key: str) -> tuple[tuple[str, str], ...] | None:
+    """Sin la clave: valores por defecto. Para apagar la regla, `{}` explícito: un null suele
+    ser una clave a medio escribir y no debe apagarla en silencio."""
     if key not in prefs:
         return None
+    if prefs[key] is None:
+        raise ProfileError(f"preferences.{key} está vacío: quítelo o use {{}} para apagar la regla")
     out: list[tuple[str, str]] = []
     for k, v in _mapping(prefs, key, "preferences.").items():
-        if not isinstance(v, str) or not v:
-            raise ProfileError(f"preferences.{key}.{k} debe ser un texto (la etiqueta del motivo)")
-        out.append((str(k), v))
+        if not isinstance(k, str) or not isinstance(v, str) or not v:
+            raise ProfileError(f"preferences.{key}.{k} debe ser sector: texto (la etiqueta)")
+        out.append((k, v))
     return tuple(out)
+
+
+def _sectors(exc: dict[str, Any]) -> frozenset[str] | None:
+    where = "preferences.cpg_exception.sectors"
+    if "sectors" not in exc:
+        return None
+    if exc["sectors"] is None:
+        raise ProfileError(f"{where} está vacío: quítelo o use [] para apagar la excepción")
+    items = _seq(exc, "sectors", "preferences.cpg_exception.")
+    if not all(isinstance(x, str) and x for x in items):
+        raise ProfileError(f"{where} debe ser una lista de nombres de sector")
+    return frozenset(items)
 
 
 @dataclass(slots=True)
