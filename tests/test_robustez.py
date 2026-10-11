@@ -274,3 +274,50 @@ def test_report_link_with_parentheses_stays_one_link() -> None:
                   today=TODAY)
     text = "\n".join(_detail(1, ev, "hoy"))
     assert "https://example.com/job/%28123%29%20x" in text
+
+
+# ------------------------------------------------------------------ salario y moneda
+
+
+@pytest.mark.parametrize(
+    ("text", "currency", "low", "interval"),
+    [
+        ("$4.500.000 - $5.000.000 mensual", "COP", 4_500_000, "monthly"),
+        ("$4.500.000 COP mensual", "COP", 4_500_000, "monthly"),
+        ("COP 4.500.000 al mes", "COP", 4_500_000, "monthly"),
+        ("4.500.000 pesos por mes", "COP", 4_500_000, "monthly"),
+        ("$80,000 - $100,000 per year", "USD", 80_000, "annual"),
+        ("USD 3,000 per month", "USD", 3_000, "monthly"),
+        ("$100k - $120k", "USD", 100_000, "annual"),
+        ("US$ 25 per hour", "USD", 25, "hourly"),
+    ],
+)
+def test_salary_currency_and_interval(text: str, currency: str, low: int, interval: str) -> None:
+    from radar_vacantes.compensation import parse_salary
+
+    rng = parse_salary(text)
+    assert rng is not None
+    assert (rng.currency, int(rng.low), rng.interval.value) == (currency, low, interval)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["€50.000", "MXN 30,000", "30.000 pesos mexicanos al mes", "USD 3,000 o COP 12.000.000",
+     "a convenir", ""],
+)
+def test_other_or_ambiguous_currencies_are_not_scored(text: str) -> None:
+    from radar_vacantes.compensation import parse_salary
+
+    assert parse_salary(text) is None
+
+
+def test_peso_salary_with_dollar_sign_is_compared_in_cop() -> None:
+    from decimal import Decimal
+
+    from radar_vacantes.compensation import CompGate
+
+    gate = CompGate(Decimal(5_500_000), Decimal(5_500_000), Decimal(4000), "2026-10-10")
+    p = _posting(salary_text="$4.500.000 - $5.000.000 mensual")
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=Profile.from_config(EXAMPLE),
+                  today=TODAY, gate=gate)
+    assert "≈ COP 4,500,000/mes, < COP 5,500,000/mes" in ev.salary_note

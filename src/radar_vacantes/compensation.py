@@ -40,7 +40,6 @@ class CompGate:
     usd_cop_as_of: str
 
 
-_CURRENCY = {"$": "USD", "us$": "USD", "usd": "USD", "cop": "COP"}
 # El sufijo k/m no puede ir seguido de letra: "10.000.000 mensual" no es un millón.
 _AMOUNT = re.compile(
     r"(us\$|\$|usd|cop)?\s*([0-9][0-9.,]*)\s*(?:([kKmM])(?![a-zA-Z]))?", re.IGNORECASE
@@ -63,30 +62,51 @@ def _to_decimal(number: str, suffix: str) -> Decimal | None:
     return value
 
 
+#: Monedas nombradas en el texto. Mandan sobre el símbolo "$", que usan ambas.
+_CODES = (
+    ("COP", re.compile(r"\b(cop|pesos?)\b|col\$", re.IGNORECASE)),
+    ("USD", re.compile(r"\busd\b|us\$|d[oó]lar", re.IGNORECASE)),
+)
+#: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
+_COP_MAGNITUDE = Decimal(1_000_000)
+
+
 def parse_salary(text: str) -> SalaryRange | None:
-    """Extrae un rango USD o COP. Devuelve None ante cualquier ambigüedad."""
+    """Extrae un rango USD o COP. Devuelve None ante cualquier ambigüedad.
+
+    La moneda sale del código escrito (COP, pesos, USD, US$, dólares); si aparecen dos, es
+    ambiguo. Con "$" a secas: "$4.500.000" es COP y "$80,000" es USD."""
     if not text:
         return None
     lowered = text.lower()
     if any(sym in text for sym in ("€", "£", "₹", "¥")) or re.search(
-        r"\b(eur|gbp|cad|aud|inr|brl|mxn|chf)\b", lowered
+        r"\b(eur|gbp|cad|aud|inr|brl|mxn|chf|clp|ars|pen)\b|"
+        r"pesos? (mexican|chilen|argentin|uruguay|dominican|filipin)",
+        lowered,
     ):
         return None
-    currency = ""
+    named = {code for code, pattern in _CODES if pattern.search(text)}
+    if len(named) > 1:
+        return None
+    seen_symbol = False
+    millions = False
     amounts: list[Decimal] = []
     for match in _AMOUNT.finditer(text):
         symbol, number, suffix = match.group(1), match.group(2), match.group(3) or ""
-        if symbol:
-            currency = currency or _CURRENCY[symbol.lower()]
+        seen_symbol = seen_symbol or bool(symbol)
         value = _to_decimal(number, suffix)
         # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo.
-        if value is not None and value > 0 and (symbol or suffix or (currency and value >= 1000)):
+        if value is not None and value > 0 and (
+            symbol or suffix or ((named or seen_symbol) and value >= 1000)
+        ):
             amounts.append(value)
-    if not currency or not amounts:
+            millions = millions or (not suffix and value >= _COP_MAGNITUDE)
+    if not amounts or not (named or seen_symbol):
         return None
-    if re.search(r"(/\s*h(ou)?r|per hour|hourly)", lowered):
+    currency = next(iter(named)) if named else ("COP" if millions else "USD")
+    if re.search(r"(/\s*h(ou)?r|per hour|hourly|por hora)", lowered):
         interval = Interval.HOURLY
-    elif re.search(r"(/\s*mo(nth)?|per month|monthly|mensual)", lowered):
+    elif re.search(r"(/\s*mo(nth)?|per month|monthly|mensual|al mes|por mes|/\s*mes)", lowered):
         interval = Interval.MONTHLY
     else:
         interval = Interval.ANNUAL
