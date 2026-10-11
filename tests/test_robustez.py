@@ -450,3 +450,20 @@ def test_structured_english_level_wins_over_text(level: str, text: str, gap: boo
 def test_invalid_english_level_names_the_field(level: Any) -> None:
     with pytest.raises(ProfileError, match="english_level"):
         Profile.from_config({**EXAMPLE, "english_level": level})
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["config/perfil.yaml", "config/seguimiento.md", "seguimiento.md", "postulaciones.md",
+     "salida/Top20_x.md"],
+)
+def test_personal_files_are_never_versioned(path: str) -> None:
+    import shutil
+    import subprocess
+
+    if not (ROOT / ".git").exists() or shutil.which("git") is None:
+        pytest.skip("sin repositorio git")
+    ignored = subprocess.run(
+        ["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", path], check=False
+    )
+    assert ignored.returncode == 0, f"{path} no está en .gitignore"

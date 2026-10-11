@@ -1,6 +1,7 @@
 # Su perfil, sus postulaciones y sus resultados son suyos: no se versionan.
 config/perfil.yaml
 config/seguimiento.md
+seguimiento*.md
 postulaciones*.md
 salida/
 *.local.yaml
