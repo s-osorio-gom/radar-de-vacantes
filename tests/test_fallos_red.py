@@ -235,3 +235,11 @@ def test_cornerstone_empty_and_unexpected_shapes(search: Any, outcome: Outcome) 
                       "https://acme.csod.com/ux/ats/careersite/1/home?c=acme")
     res = read_source(spec, _Cornerstone(search), "x", sleep=lambda _: None)
     assert res.outcome is outcome
+
+
+def test_retry_count_reads_well() -> None:
+    spec = SourceSpec("a", "Acme", "greenhouse", "acme")
+    two = read_source(spec, Fixed(TimeoutError()), "x", sleep=lambda _: None)
+    assert two.detail.endswith("(tras 2 reintentos)")
+    none = read_source(spec, Fixed(TimeoutError()), "x", retries=0, sleep=lambda _: None)
+    assert "reintento" not in none.detail

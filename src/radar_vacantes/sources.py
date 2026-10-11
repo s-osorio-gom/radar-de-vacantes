@@ -1100,6 +1100,6 @@ def read_source(
             )
             break
     if result.outcome is Outcome.ERROR and retried:
-        result.detail += f" (tras {retried} reintentos)"
+        result.detail += f" (tras {retried} {'reintento' if retried == 1 else 'reintentos'})"
     return result
 

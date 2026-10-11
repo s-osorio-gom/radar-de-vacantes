@@ -100,7 +100,7 @@ def test_error_blocked_and_empty_are_distinct() -> None:
     down = read_source(
         spec, FakeHttp({"boards/acme": TimeoutError()}), "x", retries=1, sleep=lambda _: None
     )
-    assert down.outcome is Outcome.ERROR and "reintentos" in down.detail
+    assert down.outcome is Outcome.ERROR and down.detail.endswith("(tras 1 reintento)")
 
 
 def test_transient_error_is_retried() -> None:
