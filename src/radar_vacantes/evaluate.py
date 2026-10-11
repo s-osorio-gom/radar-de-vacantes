@@ -785,6 +785,9 @@ def evaluate(
     else:
         fit = Fit.BAJO
     age = _age(p.published_at, today)
+    if age is not None and age < 0:
+        # Un día de adelanto es la zona horaria del portal; más es un dato malo: no se estima.
+        age = 0 if age == -1 else None
     if age is None:
         recency, rec_pts = "sin fecha", 1
     elif age <= 15:

@@ -336,3 +336,15 @@ def test_english_gap_depends_on_the_declared_level(level: str, gap: bool) -> Non
     assert any("inglés" in g for g in ev.gaps) is gap
     if not gap:
         assert ev.fit.value == "cumple completamente"
+
+
+@pytest.mark.parametrize(
+    ("published", "age", "recency"),
+    [("2026-10-10", 0, "0 días"), ("2026-10-09", 1, "1 días"), ("2026-10-11", 0, "0 días"),
+     ("2026-12-01", None, "sin fecha"), ("2026-02-30", None, "sin fecha"), ("", None, "sin fecha")],
+)
+def test_future_or_invalid_dates_are_not_recent(published: str, age: int | None,
+                                                recency: str) -> None:
+    ev = evaluate(_posting(published_at=published), company_id="a", sector="", tier=2,
+                  profile=Profile.from_config(EXAMPLE), today=TODAY)
+    assert (ev.age_days, ev.recency) == (age, recency)
