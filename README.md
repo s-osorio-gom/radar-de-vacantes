@@ -50,7 +50,8 @@ salida/*.md, *.json ◄─ reporte (report.py) ◄─ verificación en el portal
 
 1. **Fuentes.** Cada empresa del universo declara cómo se leen sus vacantes (API de un ATS,
    Workday, Oracle…). Cada lectura termina en un resultado explícito; una respuesta con forma
-   desconocida es `error`, nunca "sin vacantes".
+   desconocida, o con elementos de los que no sale ninguna vacante legible, es `error`, nunca
+   "sin vacantes".
 2. **Normalización.** Todo aviso se convierte al mismo `JobPosting` (empresa, cargo, ciudad,
    fecha, salario, descripción). Lo que la fuente no trae queda vacío; no se inventa.
 3. **Detalle y deduplicación.** Para los avisos prometedores se lee la descripción completa.
@@ -118,10 +119,13 @@ da siempre el mismo resultado, y cada punto se puede explicar.
 - **Salario** publicado comparado con su piso (`floor_monthly_cop`), con la TRM oficial
   vigente ([datos.gov.co](https://www.datos.gov.co/)) para avisos en USD. Sin TRM, los avisos
   en USD no se puntúan por salario. La moneda sale del código escrito (COP, pesos, USD); con
-  "$" a secas, "$4.500.000" es COP y "$80,000" es USD. Otras monedas, o dos en el mismo
-  texto, no se puntúan.
-- **Inglés:** un aviso que pide inglés fluido o avanzado es brecha solo si su perfil declara
-  menos de C1.
+  "$" a secas, "$4.500.000", "$900.000 mensual" y "$5 millones" son COP y "$80,000" es USD.
+  "4.500" y "4,500" son cuatro mil quinientos. Otras monedas, o dos en el mismo texto, no se
+  puntúan; un año ("Salario 2026") nunca es un monto.
+- **Inglés:** un aviso que pide inglés fluido o avanzado es brecha salvo que su perfil declare
+  C1, C2, nativo o bilingüe sin matices. "No fluido", "B2+ camino a C1" o "C1 en curso" cuentan
+  como brecha: ante la duda, brecha. Con `english_level: C1` (A1…C2, NATIVO) no hay que
+  interpretar el texto.
 - **Sus gustos:** puntos por sector y familia (`preferences` del perfil). No borran
   vacantes, solo cambian el orden. También desde el perfil: en qué sectores "Analyst" o
   "Associate" a secas cuenta como carrera de entrada (`entry_track_sectors`).
