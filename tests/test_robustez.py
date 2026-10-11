@@ -290,6 +290,10 @@ def test_report_link_with_parentheses_stays_one_link() -> None:
         ("USD 3,000 per month", "USD", 3_000, "monthly"),
         ("$100k - $120k", "USD", 100_000, "annual"),
         ("US$ 25 per hour", "USD", 25, "hourly"),
+        # Un año o una cifra antes de la moneda no entran en el rango.
+        ("Salario 2026: COP 8.000.000 mensual", "COP", 8_000_000, "monthly"),
+        ("COP 5.000.000 mensual (2026)", "COP", 5_000_000, "monthly"),
+        ("4.500.000 - 6.000.000 COP mensual", "COP", 4_500_000, "monthly"),
     ],
 )
 def test_salary_currency_and_interval(text: str, currency: str, low: int, interval: str) -> None:

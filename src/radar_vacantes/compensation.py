@@ -67,6 +67,8 @@ _CODES = (
     ("COP", re.compile(r"\b(cop|pesos?)\b|col\$", re.IGNORECASE)),
     ("USD", re.compile(r"\busd\b|us\$|d[oó]lar", re.IGNORECASE)),
 )
+_YEAR = re.compile(r"(19|20)\d\d")
+_GROUPED = re.compile(r"\d[.,]\d{3}")
 #: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
 _COP_MAGNITUDE = Decimal(1_000_000)
 
@@ -85,9 +87,11 @@ def parse_salary(text: str) -> SalaryRange | None:
         lowered,
     ):
         return None
-    named = {code for code, pattern in _CODES if pattern.search(text)}
+    named_at = {code: m.start() for code, pattern in _CODES if (m := pattern.search(text))}
+    named = set(named_at)
     if len(named) > 1:
         return None
+    first_named = min(named_at.values(), default=len(text))
     seen_symbol = False
     millions = False
     amounts: list[Decimal] = []
@@ -95,7 +99,13 @@ def parse_salary(text: str) -> SalaryRange | None:
         symbol, number, suffix = match.group(1), match.group(2), match.group(3) or ""
         seen_symbol = seen_symbol or bool(symbol)
         value = _to_decimal(number, suffix)
-        # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo.
+        # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo. Una cifra suelta antes
+        # de la moneda solo cuenta con separador de miles ("4.500.000 - 6.000.000 COP"), y un
+        # año ("Salario 2026: COP 8.000.000") nunca es un monto.
+        bare = not symbol and not suffix
+        after = seen_symbol or match.start() >= first_named
+        if bare and (_YEAR.fullmatch(number) or not (after or _GROUPED.search(number))):
+            continue
         if value is not None and value > 0 and (
             symbol or suffix or ((named or seen_symbol) and value >= 1000)
         ):
