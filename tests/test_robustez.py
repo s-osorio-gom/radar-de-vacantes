@@ -326,7 +326,11 @@ def test_peso_salary_with_dollar_sign_is_compared_in_cop() -> None:
 @pytest.mark.parametrize(
     ("level", "gap"),
     [("B2", True), ("B2+", True), ("intermedio", True), ("C1", False), ("C2 (IELTS 8)", False),
-     ("nativo", False), ("bilingüe", False)],
+     ("nativo", False), ("bilingüe", False), ("C1 certificado", False), ("Avanzado (C1)", False),
+     # Negaciones, metas y niveles mezclados: ante la duda, brecha.
+     ("No fluido", True), ("Intermedio (no nativo)", True), ("Not fluent yet", True),
+     ("B2+ (camino a C1)", True), ("B2, preparando C1", True), ("C1 en curso", True),
+     ("Avanzado", True), ("IELTS 7.5", True)],
 )
 def test_english_gap_depends_on_the_declared_level(level: str, gap: bool) -> None:
     p = _posting(title="Financial Analyst", description=(
@@ -408,3 +412,22 @@ def test_entry_track_and_cpg_sectors_come_from_the_profile() -> None:
 def test_invalid_track_preferences_name_the_field(prefs: dict[str, Any], message: str) -> None:
     with pytest.raises(ProfileError, match=message):
         Profile.from_config({**EXAMPLE, "preferences": prefs})
+
+
+
+@pytest.mark.parametrize(
+    ("level", "text", "gap"),
+    [("B2", "C1", True), ("C1", "en progreso", False), ("native", "x", False), ("b1", "", True)],
+)
+def test_structured_english_level_wins_over_text(level: str, text: str, gap: bool) -> None:
+    p = _posting(title="Financial Analyst", description=(
+        "Requirements\nFluent English required\n2 years of experience in finance"))
+    profile = Profile.from_config({**EXAMPLE, "english": text or "x", "english_level": level})
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=profile, today=TODAY)
+    assert any("inglés" in g for g in ev.gaps) is gap
+
+
+@pytest.mark.parametrize("level", ["C3", "fluido", True, ["C1"]])
+def test_invalid_english_level_names_the_field(level: Any) -> None:
+    with pytest.raises(ProfileError, match="english_level"):
+        Profile.from_config({**EXAMPLE, "english_level": level})

@@ -5,6 +5,7 @@
 
 years_relevant: 2            # años de experiencia relevante que declara en formularios
 english: "B2"                # nivel autoevaluado; si no está certificado, dígalo
+# english_level: B2          # opcional: A1, A2, B1, B2, C1, C2 o NATIVO; si está, manda sobre "english"
 degree: "Administración de Empresas"
 has_masters: false
 certifications: []           # p. ej. [cfa, frm]; vacío si no tiene ninguna

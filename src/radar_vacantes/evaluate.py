@@ -62,6 +62,7 @@ class Profile:
     # None = los valores por defecto del código (_TRACK_SECTORS, _CPG).
     entry_track_sectors: tuple[tuple[str, str], ...] | None = None
     cpg_sectors: frozenset[str] | None = None
+    english_level: str = ""  # A1…C2 o NATIVO; vacío = se interpreta `english` con cautela
 
     @classmethod
     def from_config(cls, cfg: Any) -> Profile:
@@ -80,6 +81,7 @@ class Profile:
         return cls(
             years=_int(cfg, "years_relevant", required=True),
             english=_text(cfg, "english", required=True),
+            english_level=_english_level(cfg),
             tools=frozenset(str(t).lower() for t in _seq(cfg, "tools")),
             certifications=frozenset(str(c).lower() for c in _seq(cfg, "certifications")),
             has_masters=_bool(cfg, "has_masters"),
@@ -170,6 +172,34 @@ def _points(prefs: dict[str, Any], key: str) -> tuple[tuple[str, int], ...]:
             raise ProfileError(f"preferences.{key}.{k} debe ser un entero (puede ser negativo)")
         out.append((str(k), v))
     return tuple(out)
+
+
+ENGLISH_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2", "NATIVO")
+
+
+def _english_level(cfg: dict[str, Any]) -> str:
+    value = cfg.get("english_level")
+    if value is None:
+        return ""
+    level = str(value).strip().upper().replace("NATIVE", "NATIVO")
+    if isinstance(value, (bool, dict, list)) or level not in ENGLISH_LEVELS:
+        raise ProfileError(f"english_level debe ser uno de {', '.join(ENGLISH_LEVELS)}")
+    return level
+
+
+def english_covers_fluent(profile: Profile) -> bool:
+    """¿El perfil cubre un "inglés fluido/avanzado" exigido? Con `english_level`, manda ese
+    campo. Con texto libre se lee con cautela: un nivel alto cuenta solo si no hay a la vez un
+    nivel menor, una negación o una meta ("no fluido", "camino a C1", "C1 en curso").
+    Ante la duda, no lo cubre (y el aviso muestra la brecha)."""
+    if profile.english_level:
+        return profile.english_level in ("C1", "C2", "NATIVO")
+    text = profile.english
+    return bool(
+        _ENGLISH_DECLARED_HIGH.search(text)
+        and not _ENGLISH_DECLARED_LOWER.search(text)
+        and not _ENGLISH_DOUBT.search(text)
+    )
 
 
 def _labels(prefs: dict[str, Any], key: str) -> tuple[tuple[str, str], ...] | None:
@@ -436,9 +466,18 @@ _ENGLISH_HIGH = re.compile(
     r"excellent (written and (verbal|spoken)|english)|proficient in english)\b",
     re.IGNORECASE,
 )
-#: Nivel del perfil que ya cubre un "inglés fluido/avanzado" exigido.
+#: Nivel del perfil que ya cubre un "inglés fluido/avanzado" exigido (ver english_covers_fluent).
 _ENGLISH_DECLARED_HIGH = re.compile(
     r"\b(c1|c2|nativ\w*|native|fluent|flu[ií]do|biling\w*)", re.IGNORECASE
+)
+_ENGLISH_DECLARED_LOWER = re.compile(
+    r"\b(a1|a2|b1|b2|b[aá]sico|basic|intermedi\w*|elementary|elemental)", re.IGNORECASE
+)
+_ENGLISH_DOUBT = re.compile(
+    r"\b(no|not|non|sin|without|camino|rumbo|hacia|towards?|preparando|preparing|en curso|"
+    r"in progress|cursando|estudiando|studying|aprendiendo|learning|yet|todav[ií]a|a[uú]n|"
+    r"meta|goal|objetivo|pronto|soon|casi|almost|pendiente|pending|working on)\b",
+    re.IGNORECASE,
 )
 _MASTERS = re.compile(
     r"\b(mba|master'?s|maestr[ií]a|posgrado|post.?grad\w*|graduate degree|ph\.?d|"
@@ -597,7 +636,7 @@ def gaps_and_reasons(
     elif years:
         reasons.append(f"experiencia pedida ({years}+ años) dentro de lo que tienes")
     joined_must = " ".join(body)
-    if _ENGLISH_HIGH.search(joined_must) and not _ENGLISH_DECLARED_HIGH.search(profile.english):
+    if _ENGLISH_HIGH.search(joined_must) and not english_covers_fluent(profile):
         weight += 1
         gaps.append(f"pide inglés fluido/avanzado; el perfil declara {profile.english}")
     if not profile.has_masters and any(
