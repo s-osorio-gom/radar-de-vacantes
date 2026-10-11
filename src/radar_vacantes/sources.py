@@ -102,6 +102,28 @@ class HttpError(Exception):
         self.body = body[:2000]
 
 
+class FormatError(ValueError):
+    """La fuente respondió, pero no con la forma que su conector conoce.
+
+    No equivale a "sin vacantes": si se tomara como lectura vacía, el historial declararía
+    cerradas todas las vacantes que esa fuente tenía en la corrida anterior."""
+
+
+def _items(payload: Any, *path: str) -> list[Any]:
+    """La lista en `payload[path...]` (sin ruta: el payload mismo). Si el contenedor falta o no
+    es una lista, `FormatError`; presente y vacío (o null) es una lectura vacía legítima."""
+    node = payload
+    for key in path:
+        if not isinstance(node, dict) or key not in node:
+            raise FormatError(f"formato inesperado: falta {'.'.join(path)}")
+        node = node[key]
+    if node is None and path:
+        return []
+    if not isinstance(node, list):
+        raise FormatError(f"formato inesperado: {'.'.join(path) or 'la respuesta'} no es una lista")
+    return node
+
+
 class Http(Protocol):
     """Cliente HTTP inyectable: las pruebas no tocan la red."""
 
@@ -301,6 +323,8 @@ def classify_error(exc: BaseException) -> tuple[Outcome, str]:
     """Traduce una excepción a un resultado explícito, sin adivinar vacantes."""
     if isinstance(exc, RobotsDisallowedError):
         return Outcome.BLOCKED, "robots.txt no permite leerla"
+    if isinstance(exc, FormatError):
+        return Outcome.ERROR, str(exc)
     if isinstance(exc, HttpError):
         if exc.status in (401, 407):
             return Outcome.LOGIN_REQUIRED, f"HTTP {exc.status}"
@@ -313,6 +337,17 @@ def classify_error(exc: BaseException) -> tuple[Outcome, str]:
 
 
 # --------------------------------------------------------------------------- legado ATS
+
+
+#: Contenedor de la lista de vacantes en la respuesta de cada ATS (vacío = la respuesta es la lista).
+_LEGACY_LIST: dict[str, tuple[str, ...]] = {
+    "greenhouse": ("jobs",),
+    "ashby": ("jobs",),
+    "lever": (),
+    "smartrecruiters": ("content",),
+    "workable": ("jobs",),
+    "recruitee": ("offers",),
+}
 
 
 def _legacy_url(spec: SourceSpec, offset: int = 0) -> str:
@@ -332,6 +367,7 @@ def read_legacy(
     board = BoardRef(spec.method, spec.ref, spec.company)
     if spec.method != ATS_SMARTRECRUITERS:
         payload = client.get_json(_legacy_url(spec))
+        _items(payload, *_LEGACY_LIST[spec.method])
         if spec.method == ATS_GREENHOUSE:
             postings = parse_greenhouse(board, payload, seen_at)
             jobs: Any = payload.get("jobs", []) if isinstance(payload, dict) else []
@@ -350,6 +386,7 @@ def read_legacy(
     offset = 0
     while pages < max_pages:
         payload = client.get_json(_legacy_url(spec, offset))
+        _items(payload, *_LEGACY_LIST[spec.method])
         pages += 1
         batch = parse_smartrecruiters(board, payload, seen_at)
         postings.extend(batch)
@@ -421,8 +458,8 @@ def read_workday(
                 {"appliedFacets": {}, "limit": page_size, "offset": offset, "searchText": query},
             )
             pages += 1
-            jobs: Any = data.get("jobPostings", []) if isinstance(data, dict) else []
-            for job in jobs if isinstance(jobs, list) else []:
+            jobs = _items(data, "jobPostings")
+            for job in jobs:
                 if not isinstance(job, dict) or not job.get("externalPath"):
                     continue
                 path = str(job["externalPath"])
@@ -496,8 +533,8 @@ def read_oracle(
             )
             data: Any = client.get_json(url)
             pages += 1
-            items: Any = data.get("items", []) if isinstance(data, dict) else []
-            head: Any = items[0] if isinstance(items, list) and items else {}
+            items = _items(data, "items")
+            head: Any = items[0] if items else {}
             reqs: Any = head.get("requisitionList", []) if isinstance(head, dict) else []
             for r in reqs if isinstance(reqs, list) else []:
                 if not isinstance(r, dict) or not r.get("Id"):
@@ -760,8 +797,8 @@ def read_hirehive(
     while url and pages < max_pages:
         data: Any = client.get_json(url)
         pages += 1
-        jobs: Any = data.get("jobs", []) if isinstance(data, dict) else []
-        for j in jobs if isinstance(jobs, list) else []:
+        jobs = _items(data, "jobs")
+        for j in jobs:
             if not isinstance(j, dict):
                 continue
             country: Any = j.get("country") or {}
@@ -829,9 +866,9 @@ def read_cornerstone(
             headers={"Authorization": f"Bearer {tok.group(1)}"},
         )
         pages += 1
-        inner: Any = data.get("data", {}) if isinstance(data, dict) else {}
-        reqs: Any = inner.get("requisitions", []) if isinstance(inner, dict) else []
-        for r in reqs if isinstance(reqs, list) else []:
+        reqs = _items(data, "data", "requisitions")
+        inner: Any = data["data"]
+        for r in reqs:
             if not isinstance(r, dict):
                 continue
             locs: Any = r.get("locations") or []
@@ -888,10 +925,9 @@ def read_phenom(
                     "locationData": {}}
             data: Any = client.post_json(f"{origin}/widgets", body)
             pages += 1
-            block: Any = data.get("refineSearch", {}) if isinstance(data, dict) else {}
-            inner: Any = block.get("data", {}) if isinstance(block, dict) else {}
-            jobs: Any = inner.get("jobs", []) if isinstance(inner, dict) else []
-            for j in jobs if isinstance(jobs, list) else []:
+            jobs = _items(data, "refineSearch", "data", "jobs")
+            block: Any = data["refineSearch"]
+            for j in jobs:
                 if not isinstance(j, dict):
                     continue
                 jid = str(j.get("jobId", ""))
@@ -942,8 +978,8 @@ def read_amazon(
         )
         data: Any = client.get_json(url)
         pages += 1
-        jobs: Any = data.get("jobs", []) if isinstance(data, dict) else []
-        for j in jobs if isinstance(jobs, list) else []:
+        jobs = _items(data, "jobs")
+        for j in jobs:
             if not isinstance(j, dict):
                 continue
             desc = "\n".join(
@@ -1024,16 +1060,19 @@ def read_source(
     if reader is None:
         return SourceResult(spec, Outcome.UNSUPPORTED, detail=f"sin conector para {spec.method}")
     result = SourceResult(spec, Outcome.ERROR)
+    retried = 0
     for attempt in range(retries + 1):
+        retried = attempt
         try:
             return reader(spec, client, seen_at)
         except (*_NET_ERRORS, HttpError) as exc:
             outcome, detail = classify_error(exc)
             result = SourceResult(spec, outcome, detail=detail)
-            if outcome is not Outcome.ERROR or attempt == retries:
+            # Un formato desconocido no es pasajero: reintentar no lo arregla.
+            if outcome is not Outcome.ERROR or isinstance(exc, FormatError) or attempt == retries:
                 break
             sleep(2.0 * (attempt + 1))
-    if result.outcome is Outcome.ERROR and retries:
-        result.detail += f" (tras {retries} reintentos)"
+    if result.outcome is Outcome.ERROR and retried:
+        result.detail += f" (tras {retried} reintentos)"
     return result
 

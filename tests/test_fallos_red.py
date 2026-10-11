@@ -1,0 +1,127 @@
+"""Fallos de red y respuestas raras, simulados sin red: ninguno puede tumbar la corrida ni
+pasar por "sin vacantes" (una lectura vacía cierra en el historial lo que había antes)."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+from radar_vacantes.engine import Company, run_search
+from radar_vacantes.evaluate import Profile
+from radar_vacantes.sources import HttpError, Outcome, SourceSpec, read_source
+
+ROOT = Path(__file__).resolve().parents[1]
+PROFILE = Profile.from_config(yaml.safe_load((ROOT / "config/perfil.ejemplo.yaml").read_text()))
+
+#: Conector JSON → (ref de ejemplo, respuesta vacía legítima de esa API).
+JSON_SOURCES: dict[str, tuple[str, Any]] = {
+    "greenhouse": ("acme", {"jobs": [], "meta": {"total": 0}}),
+    "ashby": ("acme", {"jobs": []}),
+    "lever": ("acme", []),
+    "smartrecruiters": ("acme", {"totalFound": 0, "content": []}),
+    "workable": ("acme", {"name": "Acme", "jobs": []}),
+    "recruitee": ("acme", {"offers": []}),
+    "workday": ("https://acme.wd1.myworkdayjobs.com/Ext", {"total": 0, "jobPostings": []}),
+    "oracle": (
+        "https://abc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1",
+        {"items": [{"requisitionList": [], "TotalJobsCount": 0}]},
+    ),
+    "amazon": ("COL", {"hits": 0, "jobs": []}),
+    "hirehive": ("https://acme.hirehive.com", {"jobs": []}),
+    "phenom": (
+        "https://careers.example.com/global/en",
+        {"refineSearch": {"totalHits": 0, "data": {"jobs": []}}},
+    ),
+}
+
+
+class Fixed:
+    """Toda petición devuelve `value` (o lo lanza si es una excepción)."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+        self.calls = 0
+
+    def _get(self) -> Any:
+        self.calls += 1
+        if isinstance(self.value, BaseException):
+            raise self.value
+        return self.value
+
+    def get_json(self, url: str) -> Any:
+        return self._get()
+
+    def post_json(self, url: str, body: dict[str, Any]) -> Any:
+        return self._get()
+
+    def get_text(self, url: str) -> str:
+        value = self._get()
+        return value if isinstance(value, str) else json.dumps(value)
+
+
+def _read(method: str, value: Any) -> Any:
+    ref, _ = JSON_SOURCES[method]
+    spec = SourceSpec("acme", "Acme", method, ref)
+    return read_source(spec, Fixed(value), "2026-10-10T00:00:00+00:00", sleep=lambda _: None)
+
+
+@pytest.mark.parametrize("method", sorted(JSON_SOURCES))
+def test_real_empty_response_is_empty(method: str) -> None:
+    assert _read(method, JSON_SOURCES[method][1]).outcome is Outcome.EMPTY
+
+
+@pytest.mark.parametrize("method", sorted(JSON_SOURCES))
+@pytest.mark.parametrize(
+    "payload",
+    [{"error": "maintenance"}, None, 5, "<html><body>nuevo diseño</body></html>"],
+    ids=["dict-de-error", "null", "numero", "html"],
+)
+def test_unexpected_shape_is_an_error_not_empty(method: str, payload: Any) -> None:
+    res = _read(method, payload)
+    assert res.outcome is Outcome.ERROR
+    assert "formato inesperado" in res.detail
+
+
+def test_unexpected_shape_is_not_retried() -> None:
+    http = Fixed({"error": "maintenance"})
+    read_source(SourceSpec("a", "Acme", "greenhouse", "acme"), http, "x", sleep=lambda _: None)
+    assert http.calls == 1
+
+
+@pytest.mark.parametrize(
+    ("failure", "outcome"),
+    [
+        (TimeoutError("timed out"), Outcome.ERROR),
+        (HttpError(429), Outcome.BLOCKED),
+        (HttpError(500), Outcome.ERROR),
+        (HttpError(503), Outcome.ERROR),
+        (json.JSONDecodeError("Expecting value", "<html>", 0), Outcome.ERROR),
+    ],
+    ids=["timeout", "429", "500", "503", "json-malformado"],
+)
+def test_network_failures_are_explicit(failure: BaseException, outcome: Outcome) -> None:
+    for method in JSON_SOURCES:
+        assert _read(method, failure).outcome is outcome
+
+
+def _company() -> list[Company]:
+    spec = SourceSpec("acme", "Acme", "greenhouse", "acme")
+    return [Company("acme", "Acme", "pagos", "CO", 1, (), "", (spec,), ())]
+
+
+def test_a_200_with_an_error_body_does_not_close_previous_postings() -> None:
+    ok = {"jobs": [{"id": 1, "title": "Financial Analyst", "absolute_url": "https://x.co/1",
+                    "location": {"name": "Bogotá"}, "updated_at": "2026-10-01T00:00:00Z"}]}
+    first = run_search(_company(), Fixed(ok), profile=PROFILE, today=date(2026, 10, 10),
+                       seen_at="2026-10-10T00:00:00+00:00", stamp="a", previous={})
+    assert len(first.snapshot) == 1
+    second = run_search(_company(), Fixed({"error": "maintenance"}), profile=PROFILE,
+                        today=date(2026, 10, 11), seen_at="2026-10-11T00:00:00+00:00",
+                        stamp="b", previous=first.snapshot)
+    assert second.results[0].outcome is Outcome.ERROR
+    assert second.history["closed"] == []
