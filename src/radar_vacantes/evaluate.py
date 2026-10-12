@@ -650,7 +650,8 @@ def gaps_and_reasons(
     joined_must = " ".join(body)
     if _ENGLISH_HIGH.search(joined_must) and not english_covers_fluent(profile):
         weight += 1
-        gaps.append(f"pide inglés fluido/avanzado; el perfil declara {profile.english}")
+        declared = profile.english_level or profile.english  # el campo que decidió
+        gaps.append(f"pide inglés fluido/avanzado; el perfil declara {declared}")
     if not profile.has_masters and any(
         _MASTERS.search(ln)
         and (_REQUIRED_WORD.search(ln) or _DEGREE_LEAD.search(ln))

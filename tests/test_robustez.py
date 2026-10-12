@@ -492,3 +492,12 @@ def test_salary_range_bounds(text: str, low: int, high: int) -> None:
 
     rng = parse_salary(text)
     assert rng is not None and (int(rng.low), int(rng.high)) == (low, high)
+
+
+
+def test_english_gap_quotes_the_level_that_decided() -> None:
+    p = _posting(title="Financial Analyst", description=(
+        "Requirements\nFluent English required\n2 years of experience in finance"))
+    ev = evaluate(p, company_id="a", sector="", tier=2, today=TODAY,
+                  profile=Profile.from_config({**EXAMPLE, "english": "C1", "english_level": "B2"}))
+    assert "pide inglés fluido/avanzado; el perfil declara B2" in ev.gaps
