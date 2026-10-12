@@ -480,6 +480,11 @@ def test_personal_files_are_never_versioned(path: str) -> None:
         # Un año que no es parte de un rango sigue fuera.
         ("Salario 2026: COP 8.000.000 mensual", 8_000_000, 8_000_000),
         ("COP 5.000.000 mensual (2026)", 5_000_000, 5_000_000),
+        # "millones" vale para los dos extremos del rango.
+        ("entre 8 y 10 millones de pesos", 8_000_000, 10_000_000),
+        ("8 a 10 millones COP", 8_000_000, 10_000_000),
+        ("$8 - $10 millones mensual", 8_000_000, 10_000_000),
+        ("4,5 millones de pesos", 4_500_000, 4_500_000),
     ],
 )
 def test_salary_range_bounds(text: str, low: int, high: int) -> None:
