@@ -38,6 +38,7 @@ from radar_vacantes.boards import (
     html_to_text,
     parse_greenhouse,
     parse_smartrecruiters,
+    unpublished,
 )
 
 METHOD_WORKDAY = "workday"
@@ -365,7 +366,9 @@ def read_legacy(
     board = BoardRef(spec.method, spec.ref, spec.company)
     if spec.method != ATS_SMARTRECRUITERS:
         payload = client.get_json(_legacy_url(spec))
-        raw = len(_items(payload, *_LEGACY_LIST[spec.method]))
+        items = _items(payload, *_LEGACY_LIST[spec.method])
+        # Lo que el ATS marca como no publicado se omite a propósito: no es formato raro.
+        raw = sum(1 for job in items if not unpublished(spec.method, job))
         if spec.method == ATS_GREENHOUSE:
             postings = parse_greenhouse(board, payload, seen_at)
             jobs: Any = payload.get("jobs", []) if isinstance(payload, dict) else []

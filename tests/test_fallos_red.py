@@ -243,3 +243,21 @@ def test_retry_count_reads_well() -> None:
     assert two.detail.endswith("(tras 2 reintentos)")
     none = read_source(spec, Fixed(TimeoutError()), "x", retries=0, sleep=lambda _: None)
     assert "reintento" not in none.detail
+
+
+@pytest.mark.parametrize(
+    ("method", "payload", "outcome"),
+    [
+        ("ashby", {"jobs": [{"id": "1", "title": "Analyst", "jobUrl": "https://x/1",
+                             "isListed": False}]}, Outcome.EMPTY),
+        ("recruitee", {"offers": [{"id": 1, "title": "Analyst", "careers_url": "https://x/1",
+                                   "status": "closed"}]}, Outcome.EMPTY),
+        # Lo omitido a propósito no tapa la basura: sigue siendo formato inesperado.
+        ("ashby", {"jobs": [{"id": "1", "title": "A", "isListed": False}, 5]}, Outcome.ERROR),
+    ],
+    ids=["ashby-no-listados", "recruitee-cerradas", "ashby-no-listado-y-basura"],
+)
+def test_postings_the_ats_hides_on_purpose_are_empty_not_error(
+    method: str, payload: Any, outcome: Outcome
+) -> None:
+    assert _read(method, payload).outcome is outcome

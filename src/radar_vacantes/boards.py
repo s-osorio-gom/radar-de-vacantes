@@ -90,6 +90,18 @@ class JobPosting:
         }
 
 
+def unpublished(ats: str, job: object) -> bool:
+    """El propio ATS marca el aviso como no publicado (Ashby `isListed: false`, Recruitee
+    `status` distinto de `published`): se omite a propósito, no es un formato desconocido."""
+    if not isinstance(job, dict):
+        return False
+    if ats == ATS_ASHBY:
+        return job.get("isListed") is False
+    if ats == ATS_RECRUITEE:
+        return job.get("status") not in (None, "published")
+    return False
+
+
 def _str(value: object) -> str:
     return value.strip() if isinstance(value, str) else ""
 
@@ -189,7 +201,7 @@ def parse_ashby(board: BoardRef, payload: Any, seen_at: str) -> list[JobPosting]
     jobs: Any = payload.get("jobs", []) if isinstance(payload, dict) else []
     out: list[JobPosting] = []
     for job in jobs if isinstance(jobs, list) else []:
-        if not isinstance(job, dict) or job.get("isListed") is False:
+        if not isinstance(job, dict) or unpublished(ATS_ASHBY, job):
             continue
         compensation: Any = job.get("compensation") or {}
         salary = ""
@@ -415,7 +427,7 @@ def parse_recruitee(board: BoardRef, payload: Any, seen_at: str) -> list[JobPost
     offers: Any = payload.get("offers", []) if isinstance(payload, dict) else []
     out: list[JobPosting] = []
     for job in offers if isinstance(offers, list) else []:
-        if not isinstance(job, dict) or job.get("status") not in (None, "published"):
+        if not isinstance(job, dict) or unpublished(ATS_RECRUITEE, job):
             continue
         places: list[str] = []
         raw_locs: Any = job.get("locations") or []
