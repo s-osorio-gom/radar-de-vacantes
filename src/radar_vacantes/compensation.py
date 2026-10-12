@@ -40,7 +40,6 @@ class CompGate:
     usd_cop_as_of: str
 
 
-_CURRENCY = {"$": "USD", "us$": "USD", "usd": "USD", "cop": "COP"}
 # El sufijo k/m no puede ir seguido de letra: "10.000.000 mensual" no es un millón.
 _AMOUNT = re.compile(
     r"(us\$|\$|usd|cop)?\s*([0-9][0-9.,]*)\s*(?:([kKmM])(?![a-zA-Z]))?", re.IGNORECASE
@@ -48,12 +47,26 @@ _AMOUNT = re.compile(
 HOURS_PER_YEAR = Decimal(2080)
 
 
+#: Miles agrupados con "." o "," (4.500.000 · 80,000), con decimales opcionales en el otro
+#: separador (4.500.000,00 · 70,000.00).
+_THOUSANDS = re.compile(r"(\d{1,3}(?:([.,])\d{3})(?:\2\d{3})*)(?:([.,])(\d{1,2}))?")
+_PLAIN = re.compile(r"(\d+)(?:[.,](\d+))?")
+
+
 def _to_decimal(number: str, suffix: str) -> Decimal | None:
-    cleaned = number.replace(",", "")
-    if cleaned.count(".") > 1:
-        cleaned = cleaned.replace(".", "")
+    """Cifra al estilo latino o anglosajón: "4.500" y "4,500" son cuatro mil quinientos;
+    "4.500.000,00" son cuatro millones y medio; "4.5" con sufijo M, cuatro millones y medio."""
+    text = number.rstrip(".,")
+    grouped = _THOUSANDS.fullmatch(text)
+    plain = _PLAIN.fullmatch(text)
+    if grouped and grouped.group(3) != grouped.group(2):
+        integer, frac = re.sub(r"[.,]", "", grouped.group(1)), grouped.group(4) or ""
+    elif plain:
+        integer, frac = plain.group(1), plain.group(2) or ""
+    else:
+        return None
     try:
-        value = Decimal(cleaned)
+        value = Decimal(f"{integer}.{frac}" if frac else integer)
     except InvalidOperation:
         return None
     if suffix.lower() == "k":
@@ -63,33 +76,104 @@ def _to_decimal(number: str, suffix: str) -> Decimal | None:
     return value
 
 
+#: Monedas nombradas en el texto. Mandan sobre el símbolo "$", que usan ambas.
+_CODES = (
+    ("COP", re.compile(r"\b(cop|pesos?)\b|col\$", re.IGNORECASE)),
+    ("USD", re.compile(r"\busd\b|us\$|d[oó]lar", re.IGNORECASE)),
+)
+_MILLONES = re.compile(r"(\d)\s*mill(?:ones|[oó]n)\b", re.IGNORECASE)
+_COP_MONTHLY = Decimal(100_000)
+_RANGE_SEP = re.compile(r"\s*(?:-|–|—|a|to|y|hasta|al)\s*", re.IGNORECASE)
+_YEAR = re.compile(r"(19|20)\d\d")
+_CEILING = re.compile(r"\b(hasta|up to|m[aá]ximo|max\.?)\s*(de\s*)?$", re.IGNORECASE)
+_GROUPED = re.compile(r"\d[.,]\d{3}")
+#: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
+_COP_MAGNITUDE = Decimal(1_000_000)
+
+
 def parse_salary(text: str) -> SalaryRange | None:
-    """Extrae un rango USD o COP. Devuelve None ante cualquier ambigüedad."""
+    """Extrae un rango USD o COP. Devuelve None ante cualquier ambigüedad.
+
+    La moneda sale del código escrito (COP, pesos, USD, US$, dólares); si aparecen dos, es
+    ambiguo. Con "$" a secas: "$4.500.000" es COP y "$80,000" es USD."""
     if not text:
         return None
     lowered = text.lower()
     if any(sym in text for sym in ("€", "£", "₹", "¥")) or re.search(
-        r"\b(eur|gbp|cad|aud|inr|brl|mxn|chf)\b", lowered
+        r"\b(eur|gbp|cad|aud|inr|brl|mxn|chf|clp|ars|pen)\b|"
+        r"pesos? (mexican|chilen|argentin|uruguay|dominican|filipin)",
+        lowered,
     ):
         return None
-    currency = ""
+    named_at = {code: m.start() for code, pattern in _CODES if (m := pattern.search(text))}
+    named = set(named_at)
+    if len(named) > 1:
+        return None
+    first_named = min(named_at.values(), default=len(text))
+    # "$5 millones" = $5M; "401k" es un plan de retiro, no un monto.
+    text = _MILLONES.sub(r"\1M", re.sub(r"\b401\s*\(?k\)?", " ", text, flags=re.IGNORECASE))
+    seen_symbol = False
+    millions = False
     amounts: list[Decimal] = []
+    prev_end = -1  # fin del último monto aceptado
+    small_bare: tuple[str, int] | None = None  # "8" de "entre 8 y 10 millones"
+    ceiling_only = False  # "hasta 10 millones": se conoce el tope, no el piso
     for match in _AMOUNT.finditer(text):
         symbol, number, suffix = match.group(1), match.group(2), match.group(3) or ""
-        if symbol:
-            currency = currency or _CURRENCY[symbol.lower()]
+        seen_symbol = seen_symbol or bool(symbol)
         value = _to_decimal(number, suffix)
-        # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo.
-        if value is not None and value > 0 and (symbol or suffix or (currency and value >= 1000)):
+        if not amounts and suffix.lower() == "m" and small_bare is not None:
+            # "8 y 10 millones": el sufijo vale para los dos extremos, pero solo si el primero
+            # es una cifra corta sin miles (un "2.500.000 a 3 millones" ya está en pesos).
+            first, first_end = small_bare
+            if _RANGE_SEP.fullmatch(text[first_end : match.start()]):
+                amounts.append(_to_decimal(first, "m") or Decimal(0))
+                prev_end = first_end
+        if (
+            len(amounts) == 1
+            and suffix.lower() == "m"
+            and amounts[0] < 1000
+            and _RANGE_SEP.fullmatch(text[prev_end : match.start()].replace("$", ""))
+        ):
+            amounts[0] *= 1_000_000  # "$8 - $10 millones"
+        # "hasta" solo es tope si va justo antes del monto que entra primero; un "hasta 12
+        # meses" o "up to 20%" previos no dicen nada del salario.
+        before = text[max(0, match.start() - 14) : match.start()]
+        capped = not amounts and bool(_CEILING.search(before))
+        # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo. Una cifra suelta antes
+        # de la moneda solo cuenta con separador de miles ("4.500.000 - 6.000.000 COP"), y un
+        # año ("Salario 2026: COP 8.000.000") nunca es un monto.
+        bare = not symbol and not suffix
+        after = seen_symbol or match.start() >= first_named
+        # "USD 1500-2000": el 2000 cierra un rango, no es un año.
+        range_tail = prev_end >= 0 and bool(_RANGE_SEP.fullmatch(text[prev_end : match.start()]))
+        year = _YEAR.fullmatch(number) and not range_tail
+        if bare and (year or not (after or _GROUPED.search(number))):
+            if not year and not _GROUPED.search(number) and value is not None and value < 1000:
+                small_bare = (number, match.end())
+            continue
+        if value is not None and value > 0 and (
+            symbol or suffix or ((named or seen_symbol) and value >= 1000)
+        ):
+            ceiling_only = ceiling_only or capped
             amounts.append(value)
-    if not currency or not amounts:
+            prev_end = match.end()
+            millions = millions or value >= _COP_MAGNITUDE
+    if not amounts or not (named or seen_symbol):
         return None
-    if re.search(r"(/\s*h(ou)?r|per hour|hourly)", lowered):
+    if ceiling_only and len(amounts) == 1:
+        return None  # solo un tope: leerlo como piso sumaría puntos que el aviso no promete
+    if re.search(r"(/\s*h(ou)?r|per hour|hourly|por hora)", lowered):
         interval = Interval.HOURLY
-    elif re.search(r"(/\s*mo(nth)?|per month|monthly|mensual)", lowered):
+    elif re.search(r"(/\s*mo(nth)?|per month|monthly|mensual|al mes|por mes|/\s*mes)", lowered):
         interval = Interval.MONTHLY
     else:
         interval = Interval.ANNUAL
+    # "$" a secas: millones, o cientos de miles al mes, solo pueden ser pesos.
+    monthly_hundreds = interval is Interval.MONTHLY and max(amounts) >= _COP_MONTHLY
+    currency = (
+        next(iter(named)) if named else ("COP" if millions or monthly_hundreds else "USD")
+    )
     return SalaryRange(currency, min(amounts), max(amounts), interval)
 
 

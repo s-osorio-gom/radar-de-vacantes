@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -38,7 +38,17 @@ from radar_vacantes.verify import ABIERTA, NO_VERIFICABLE, verify
 
 #: TRM oficial de Colombia (datos abiertos de la Superintendencia Financiera).
 TRM_URL = "https://www.datos.gov.co/resource/32sa-8pi3.json?$order=vigenciadesde%20DESC&$limit=1"
-EJEMPLO = Path(__file__).resolve().parents[2] / "ejemplo"
+_REPO = Path(__file__).resolve().parents[2]
+_PACKAGED = Path(__file__).resolve().parent / "_ejemplo"  # copia que trae el wheel
+
+
+def _example(in_repo: Path) -> Path:
+    """Archivo de ejemplo del clon; si se instaló sin clonar, la copia empaquetada."""
+    return in_repo if in_repo.exists() else _PACKAGED / in_repo.name
+
+
+DEMO_VACANCIES = _example(_REPO / "ejemplo" / "vacantes.json")
+EXAMPLE_PROFILE = _example(_REPO / "config" / "perfil.ejemplo.yaml")
 
 
 def _yaml(path: Path) -> dict[str, Any]:
@@ -83,6 +93,28 @@ def _json_file(path: Path) -> Any:
         raise SystemExit(f"{path} no es JSON válido: {exc}") from None
 
 
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise SystemExit(
+            f"Zona horaria desconocida: {name!r}. Use un nombre IANA, p. ej. America/Bogota"
+        ) from None
+
+
+def _tracked(path: str | None) -> list[tuple[str, set[str]]]:
+    """Postulaciones ya hechas (--seguimiento). Se lee antes de la red: un error de ruta no
+    debe descubrirse después de minutos de corrida, ni ignorarse en silencio."""
+    if not path:
+        return []
+    try:
+        return tracked_from_seguimiento(Path(path).read_text("utf-8"))
+    except FileNotFoundError:
+        raise SystemExit(f"No existe el archivo de seguimiento {path}") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise SystemExit(f"No se pudo leer el seguimiento {path}: {exc}") from None
+
+
 def _positive(text: str) -> int:
     try:
         value = int(text)
@@ -116,7 +148,8 @@ def buscar(args: argparse.Namespace) -> int:
         companies = load_universe(universe, universe)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise SystemExit(f"{args.universo} tiene una entrada mal formada: {exc!r}") from None
-    tz = ZoneInfo(args.zona)
+    tz = _zone(args.zona)
+    tracked = _tracked(args.seguimiento)
     now = datetime.now(tz)
     stamp = now.strftime("%Y-%m-%dT%H%M%S")
     out: Path = args.salida
@@ -145,8 +178,6 @@ def buscar(args: argparse.Namespace) -> int:
     (out / "busqueda_latest.json").write_text(
         json.dumps(latest_json(run, verified), ensure_ascii=False, indent=1), "utf-8"
     )
-    seg = Path(args.seguimiento) if args.seguimiento else None
-    tracked = tracked_from_seguimiento(seg.read_text("utf-8")) if seg and seg.exists() else []
     chosen: list[tuple[Evaluation, Any]] = []
     dropped: list[tuple[Evaluation, Any]] = []
     for ev in select_top(run.evaluations):
@@ -172,7 +203,7 @@ def buscar(args: argparse.Namespace) -> int:
 def demo(args: argparse.Namespace) -> int:
     """Evalúa vacantes sintéticas sin red: muestra cómo el motor lee requisitos."""
     profile, _ = _profile(args.perfil)
-    rows: Any = _json_file(EJEMPLO / "vacantes.json")
+    rows: Any = _json_file(DEMO_VACANCIES)
     today = date(2026, 10, 10)
     evals: list[Evaluation] = []
     for r in rows:
@@ -225,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--zona", default="America/Bogota")
     b.set_defaults(func=buscar)
     d = sub.add_parser("demo", help="Evalúa vacantes sintéticas sin conexión.")
-    d.add_argument("--perfil", type=Path, default=EJEMPLO.parent / "config" / "perfil.ejemplo.yaml")
+    d.add_argument("--perfil", type=Path, default=EXAMPLE_PROFILE)
     d.set_defaults(func=demo)
     s = sub.add_parser("descubrir", help="Detecta el sistema de vacantes de una página de empleo.")
     s.add_argument("empresa")

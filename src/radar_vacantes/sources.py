@@ -38,6 +38,7 @@ from radar_vacantes.boards import (
     html_to_text,
     parse_greenhouse,
     parse_smartrecruiters,
+    unpublished,
 )
 
 METHOD_WORKDAY = "workday"
@@ -100,6 +101,26 @@ class HttpError(Exception):
         super().__init__(f"HTTP {status}")
         self.status = status
         self.body = body[:2000]
+
+
+class FormatError(ValueError):
+    """La fuente respondió, pero no con la forma que su conector conoce.
+
+    No equivale a "sin vacantes": si se tomara como lectura vacía, el historial declararía
+    cerradas todas las vacantes que esa fuente tenía en la corrida anterior."""
+
+
+def _items(payload: Any, *path: str) -> list[Any]:
+    """La lista en `payload[path...]` (sin ruta: el payload mismo). Si el contenedor falta, es
+    null o no es una lista, `FormatError`; solo una lista vacía es una lectura vacía legítima."""
+    node = payload
+    for key in path:
+        if not isinstance(node, dict) or key not in node:
+            raise FormatError(f"formato inesperado: falta {'.'.join(path)}")
+        node = node[key]
+    if not isinstance(node, list):
+        raise FormatError(f"formato inesperado: {'.'.join(path) or 'la respuesta'} no es una lista")
+    return node
 
 
 class Http(Protocol):
@@ -301,6 +322,8 @@ def classify_error(exc: BaseException) -> tuple[Outcome, str]:
     """Traduce una excepción a un resultado explícito, sin adivinar vacantes."""
     if isinstance(exc, RobotsDisallowedError):
         return Outcome.BLOCKED, "robots.txt no permite leerla"
+    if isinstance(exc, FormatError):
+        return Outcome.ERROR, str(exc)
     if isinstance(exc, HttpError):
         if exc.status in (401, 407):
             return Outcome.LOGIN_REQUIRED, f"HTTP {exc.status}"
@@ -313,6 +336,17 @@ def classify_error(exc: BaseException) -> tuple[Outcome, str]:
 
 
 # --------------------------------------------------------------------------- legado ATS
+
+
+#: Contenedor de la lista de vacantes en la respuesta de cada ATS (vacío = la respuesta es la lista).
+_LEGACY_LIST: dict[str, tuple[str, ...]] = {
+    "greenhouse": ("jobs",),
+    "ashby": ("jobs",),
+    "lever": (),
+    "smartrecruiters": ("content",),
+    "workable": ("jobs",),
+    "recruitee": ("offers",),
+}
 
 
 def _legacy_url(spec: SourceSpec, offset: int = 0) -> str:
@@ -332,6 +366,9 @@ def read_legacy(
     board = BoardRef(spec.method, spec.ref, spec.company)
     if spec.method != ATS_SMARTRECRUITERS:
         payload = client.get_json(_legacy_url(spec))
+        items = _items(payload, *_LEGACY_LIST[spec.method])
+        # Lo que el ATS marca como no publicado se omite a propósito: no es formato raro.
+        raw = sum(1 for job in items if not unpublished(spec.method, job))
         if spec.method == ATS_GREENHOUSE:
             postings = parse_greenhouse(board, payload, seen_at)
             jobs: Any = payload.get("jobs", []) if isinstance(payload, dict) else []
@@ -344,12 +381,14 @@ def read_legacy(
             ]
         else:
             postings = _BOARD_PARSERS[spec.method](board, payload, seen_at)
-        return _result(spec, postings, pages=1)
+        return _result(spec, postings, pages=1, raw=raw)
     postings: list[JobPosting] = []
     pages = 0
     offset = 0
+    raw = 0
     while pages < max_pages:
         payload = client.get_json(_legacy_url(spec, offset))
+        raw += len(_items(payload, *_LEGACY_LIST[spec.method]))
         pages += 1
         batch = parse_smartrecruiters(board, payload, seen_at)
         postings.extend(batch)
@@ -357,15 +396,23 @@ def read_legacy(
         offset += len(batch)
         if not batch or offset >= total:
             break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 def _with_description(p: JobPosting, text: str) -> JobPosting:
     return JobPosting(**{**{f: getattr(p, f) for f in p.__slots__}, "description": text})
 
 
-def _result(spec: SourceSpec, postings: list[JobPosting], *, pages: int) -> SourceResult:
-    return SourceResult(spec, Outcome.OK if postings else Outcome.EMPTY, postings, pages=pages)
+def _result(
+    spec: SourceSpec, postings: list[JobPosting], *, pages: int, raw: int = 0
+) -> SourceResult:
+    """Resultado de una lectura. `raw` = elementos que trajo la fuente: si trajo elementos y
+    ninguno es una vacante legible (título e identificador o enlace), cambió el formato; tomarlo
+    como "sin vacantes" cerraría en el historial todo lo anterior."""
+    valid = [p for p in postings if p.title.strip() and (p.source_job_id or p.official_job_url)]
+    if raw and not valid:
+        raise FormatError(f"formato inesperado: {raw} elementos sin vacantes legibles")
+    return SourceResult(spec, Outcome.OK if valid else Outcome.EMPTY, valid, pages=pages)
 
 
 # --------------------------------------------------------------------------- Workday
@@ -413,6 +460,7 @@ def read_workday(
     day = today or datetime.fromisoformat(seen_at).date()
     seen: dict[str, JobPosting] = {}
     pages = 0
+    raw = 0
     for query in spec.queries or ("",):
         offset = 0
         while pages < max_pages:
@@ -421,8 +469,9 @@ def read_workday(
                 {"appliedFacets": {}, "limit": page_size, "offset": offset, "searchText": query},
             )
             pages += 1
-            jobs: Any = data.get("jobPostings", []) if isinstance(data, dict) else []
-            for job in jobs if isinstance(jobs, list) else []:
+            jobs = _items(data, "jobPostings")
+            raw += len(jobs)
+            for job in jobs:
                 if not isinstance(job, dict) or not job.get("externalPath"):
                     continue
                 path = str(job["externalPath"])
@@ -444,7 +493,7 @@ def read_workday(
             offset += page_size
             if not jobs or offset >= total:
                 break
-    return _result(spec, list(seen.values()), pages=pages)
+    return _result(spec, list(seen.values()), pages=pages, raw=raw)
 
 
 def workday_detail(spec_ref: str, path: str, client: Http) -> dict[str, str]:
@@ -484,6 +533,7 @@ def read_oracle(
     host, site = oracle_parts(spec.ref)
     seen: dict[str, JobPosting] = {}
     pages = 0
+    raw = 0
     for query in spec.queries or ("",):
         offset = 0
         while pages < max_pages:
@@ -496,10 +546,13 @@ def read_oracle(
             )
             data: Any = client.get_json(url)
             pages += 1
-            items: Any = data.get("items", []) if isinstance(data, dict) else []
-            head: Any = items[0] if isinstance(items, list) and items else {}
-            reqs: Any = head.get("requisitionList", []) if isinstance(head, dict) else []
-            for r in reqs if isinstance(reqs, list) else []:
+            items = _items(data, "items")
+            if not items:
+                raise FormatError("formato inesperado: items vacío, sin requisitionList")
+            head: Any = items[0]
+            reqs = _items(head, "requisitionList")
+            raw += len(reqs)
+            for r in reqs:
                 if not isinstance(r, dict) or not r.get("Id"):
                     continue
                 rid = str(r["Id"])
@@ -532,7 +585,7 @@ def read_oracle(
             offset += page_size
             if not reqs or offset >= total:
                 break
-    return _result(spec, list(seen.values()), pages=pages)
+    return _result(spec, list(seen.values()), pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- SuccessFactors
@@ -756,12 +809,14 @@ def read_hirehive(
     base = spec.ref.rstrip("/")
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     url: str | None = f"{base}/api/v1/jobs"
     while url and pages < max_pages:
         data: Any = client.get_json(url)
         pages += 1
-        jobs: Any = data.get("jobs", []) if isinstance(data, dict) else []
-        for j in jobs if isinstance(jobs, list) else []:
+        jobs = _items(data, "jobs")
+        raw += len(jobs)
+        for j in jobs:
             if not isinstance(j, dict):
                 continue
             country: Any = j.get("country") or {}
@@ -789,7 +844,7 @@ def read_hirehive(
             )
         nxt = data.get("nextPage") if isinstance(data, dict) else None
         url = str(nxt) if isinstance(nxt, str) and nxt.startswith("https://") else None
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- Cornerstone
@@ -816,6 +871,7 @@ def read_cornerstone(
         raise HttpError(501, "cliente sin soporte de token")
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     for page in range(1, max_pages + 1):
         body = {
             "careerSiteId": int(site), "careerSitePageId": int(site), "pageNumber": page,
@@ -829,9 +885,10 @@ def read_cornerstone(
             headers={"Authorization": f"Bearer {tok.group(1)}"},
         )
         pages += 1
-        inner: Any = data.get("data", {}) if isinstance(data, dict) else {}
-        reqs: Any = inner.get("requisitions", []) if isinstance(inner, dict) else []
-        for r in reqs if isinstance(reqs, list) else []:
+        reqs = _items(data, "data", "requisitions")
+        raw += len(reqs)
+        inner: Any = data["data"]
+        for r in reqs:
             if not isinstance(r, dict):
                 continue
             locs: Any = r.get("locations") or []
@@ -855,7 +912,7 @@ def read_cornerstone(
         total = int(inner.get("totalCount", 0)) if isinstance(inner, dict) else 0
         if not reqs or page * page_size >= total:
             break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- Amazon
@@ -878,6 +935,7 @@ def read_phenom(
             "siteType": "external", "global": True}
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     for place in spec.queries or ("",):
         offset = 0
         while pages < max_pages:
@@ -888,10 +946,10 @@ def read_phenom(
                     "locationData": {}}
             data: Any = client.post_json(f"{origin}/widgets", body)
             pages += 1
-            block: Any = data.get("refineSearch", {}) if isinstance(data, dict) else {}
-            inner: Any = block.get("data", {}) if isinstance(block, dict) else {}
-            jobs: Any = inner.get("jobs", []) if isinstance(inner, dict) else []
-            for j in jobs if isinstance(jobs, list) else []:
+            jobs = _items(data, "refineSearch", "data", "jobs")
+            raw += len(jobs)
+            block: Any = data["refineSearch"]
+            for j in jobs:
                 if not isinstance(j, dict):
                     continue
                 jid = str(j.get("jobId", ""))
@@ -922,7 +980,7 @@ def read_phenom(
             offset += page_size
             if offset >= total or not jobs:
                 break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 def read_amazon(
@@ -933,6 +991,7 @@ def read_amazon(
     Separa calificaciones básicas (indispensables) y preferidas (deseables)."""
     postings: list[JobPosting] = []
     pages = 0
+    raw = 0
     offset = 0
     while pages < max_pages:
         url = (
@@ -942,8 +1001,9 @@ def read_amazon(
         )
         data: Any = client.get_json(url)
         pages += 1
-        jobs: Any = data.get("jobs", []) if isinstance(data, dict) else []
-        for j in jobs if isinstance(jobs, list) else []:
+        jobs = _items(data, "jobs")
+        raw += len(jobs)
+        for j in jobs:
             if not isinstance(j, dict):
                 continue
             desc = "\n".join(
@@ -974,7 +1034,7 @@ def read_amazon(
         offset += page_size
         if not jobs or offset >= hits:
             break
-    return _result(spec, postings, pages=pages)
+    return _result(spec, postings, pages=pages, raw=raw)
 
 
 # --------------------------------------------------------------------------- portal propio
@@ -1024,16 +1084,25 @@ def read_source(
     if reader is None:
         return SourceResult(spec, Outcome.UNSUPPORTED, detail=f"sin conector para {spec.method}")
     result = SourceResult(spec, Outcome.ERROR)
+    retried = 0
     for attempt in range(retries + 1):
+        retried = attempt
         try:
             return reader(spec, client, seen_at)
         except (*_NET_ERRORS, HttpError) as exc:
             outcome, detail = classify_error(exc)
             result = SourceResult(spec, outcome, detail=detail)
-            if outcome is not Outcome.ERROR or attempt == retries:
+            # Un formato desconocido no es pasajero: reintentar no lo arregla.
+            if outcome is not Outcome.ERROR or isinstance(exc, FormatError) or attempt == retries:
                 break
             sleep(2.0 * (attempt + 1))
-    if result.outcome is Outcome.ERROR and retries:
-        result.detail += f" (tras {retries} reintentos)"
+        except Exception as exc:  # noqa: BLE001 — un conector roto no tumba las demás fuentes
+            # p. ej. RecursionError de un JSON hostil muy anidado: no es pasajero.
+            result = SourceResult(
+                spec, Outcome.ERROR, detail=f"fallo inesperado del conector: {type(exc).__name__}"
+            )
+            break
+    if result.outcome is Outcome.ERROR and retried:
+        result.detail += f" (tras {retried} {'reintento' if retried == 1 else 'reintentos'})"
     return result
 

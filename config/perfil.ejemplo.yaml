@@ -5,6 +5,7 @@
 
 years_relevant: 2            # años de experiencia relevante que declara en formularios
 english: "B2"                # nivel autoevaluado; si no está certificado, dígalo
+# english_level: B2          # opcional: A1, A2, B1, B2, C1, C2 o NATIVO; si está, manda sobre "english"
 degree: "Administración de Empresas"
 has_masters: false
 certifications: []           # p. ej. [cfa, frm]; vacío si no tiene ninguna
@@ -43,6 +44,10 @@ preferences:
     min_tier: 1
     families: [fpa, strategy]
     title_pattern: '\b(senior|lead|manager)\b'
+    # sectors: [consumo_masivo, retail]   # a qué sectores aplica; sin la clave, esos dos; [] la apaga
+  # Sectores donde "Analyst" o "Associate" a secas cuenta como afinidad alta (programas de
+  # entrada). Sin la clave se usan los del código (evaluate.py, _TRACK_SECTORS); {} la apaga.
+  # entry_track_sectors: {consultoria: "consultoría (carrera de entrada)"}
 
 # Meta: por qué cada sector o familia acerca a la meta. Aparece en el reporte de cada vacante.
 meta:

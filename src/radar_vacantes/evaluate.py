@@ -59,6 +59,10 @@ class Profile:
     family_points: tuple[tuple[str, int], ...] = ()
     cpg_exception: tuple[int, tuple[str, ...], str] = (1, (), "")
     floor_monthly_cop: int = 0  # piso salarial mensual; 0 = sin piso declarado
+    # None = los valores por defecto del código (_TRACK_SECTORS, _CPG).
+    entry_track_sectors: tuple[tuple[str, str], ...] | None = None
+    cpg_sectors: frozenset[str] | None = None
+    english_level: str = ""  # A1…C2 o NATIVO; vacío = se interpreta `english` con cautela
 
     @classmethod
     def from_config(cls, cfg: Any) -> Profile:
@@ -77,6 +81,7 @@ class Profile:
         return cls(
             years=_int(cfg, "years_relevant", required=True),
             english=_text(cfg, "english", required=True),
+            english_level=_english_level(cfg),
             tools=frozenset(str(t).lower() for t in _seq(cfg, "tools")),
             certifications=frozenset(str(c).lower() for c in _seq(cfg, "certifications")),
             has_masters=_bool(cfg, "has_masters"),
@@ -90,6 +95,8 @@ class Profile:
                 _regex(title_re, "preferences.cpg_exception.title_pattern") if title_re else "",
             ),
             floor_monthly_cop=_int(cfg, "floor_monthly_cop", default=0),
+            entry_track_sectors=_labels(prefs, "entry_track_sectors"),
+            cpg_sectors=_sectors(exc),
         )
 
 
@@ -161,6 +168,61 @@ def _points(prefs: dict[str, Any], key: str) -> tuple[tuple[str, int], ...]:
             raise ProfileError(f"preferences.{key}.{k} debe ser un entero (puede ser negativo)")
         out.append((str(k), v))
     return tuple(out)
+
+
+ENGLISH_LEVELS = ("A1", "A2", "B1", "B2", "C1", "C2", "NATIVO")
+
+
+def _english_level(cfg: dict[str, Any]) -> str:
+    value = cfg.get("english_level")
+    if value is None:
+        return ""
+    level = str(value).strip().upper().replace("NATIVE", "NATIVO")
+    if isinstance(value, (bool, dict, list)) or level not in ENGLISH_LEVELS:
+        raise ProfileError(f"english_level debe ser uno de {', '.join(ENGLISH_LEVELS)}")
+    return level
+
+
+def english_covers_fluent(profile: Profile) -> bool:
+    """¿El perfil cubre un "inglés fluido/avanzado" exigido? Con `english_level`, manda ese
+    campo. Con texto libre se lee con cautela: un nivel alto cuenta solo si no hay a la vez un
+    nivel menor, una negación o una meta ("no fluido", "camino a C1", "C1 en curso").
+    Ante la duda, no lo cubre (y el aviso muestra la brecha)."""
+    if profile.english_level:
+        return profile.english_level in ("C1", "C2", "NATIVO")
+    text = profile.english
+    return bool(
+        _ENGLISH_DECLARED_HIGH.search(text)
+        and not _ENGLISH_DECLARED_LOWER.search(text)
+        and not _ENGLISH_DOUBT.search(text)
+    )
+
+
+def _labels(prefs: dict[str, Any], key: str) -> tuple[tuple[str, str], ...] | None:
+    """Sin la clave: valores por defecto. Para apagar la regla, `{}` explícito: un null suele
+    ser una clave a medio escribir y no debe apagarla en silencio."""
+    if key not in prefs:
+        return None
+    if prefs[key] is None:
+        raise ProfileError(f"preferences.{key} está vacío: quítelo o use {{}} para apagar la regla")
+    out: list[tuple[str, str]] = []
+    for k, v in _mapping(prefs, key, "preferences.").items():
+        if not isinstance(k, str) or not isinstance(v, str) or not v:
+            raise ProfileError(f"preferences.{key}.{k} debe ser sector: texto (la etiqueta)")
+        out.append((k, v))
+    return tuple(out)
+
+
+def _sectors(exc: dict[str, Any]) -> frozenset[str] | None:
+    where = "preferences.cpg_exception.sectors"
+    if "sectors" not in exc:
+        return None
+    if exc["sectors"] is None:
+        raise ProfileError(f"{where} está vacío: quítelo o use [] para apagar la excepción")
+    items = _seq(exc, "sectors", "preferences.cpg_exception.")
+    if not all(isinstance(x, str) and x for x in items):
+        raise ProfileError(f"{where} debe ser una lista de nombres de sector")
+    return frozenset(items)
 
 
 @dataclass(slots=True)
@@ -416,6 +478,19 @@ _ENGLISH_HIGH = re.compile(
     r"excellent (written and (verbal|spoken)|english)|proficient in english)\b",
     re.IGNORECASE,
 )
+#: Nivel del perfil que ya cubre un "inglés fluido/avanzado" exigido (ver english_covers_fluent).
+_ENGLISH_DECLARED_HIGH = re.compile(
+    r"\b(c1|c2|nativ\w*|native|fluent|flu[ií]do|biling\w*)", re.IGNORECASE
+)
+_ENGLISH_DECLARED_LOWER = re.compile(
+    r"\b(a1|a2|b1|b2|b[aá]sico|basic|intermedi\w*|elementary|elemental)", re.IGNORECASE
+)
+_ENGLISH_DOUBT = re.compile(
+    r"\b(no|not|non|sin|without|camino|rumbo|hacia|towards?|preparando|preparing|en curso|"
+    r"in progress|cursando|estudiando|studying|aprendiendo|learning|yet|todav[ií]a|a[uú]n|"
+    r"meta|goal|objetivo|pronto|soon|casi|almost|pendiente|pending|working on)\b",
+    re.IGNORECASE,
+)
 _MASTERS = re.compile(
     r"\b(mba|master'?s|maestr[ií]a|posgrado|post.?grad\w*|graduate degree|ph\.?d|"
     r"advanced (university )?degree)\b",
@@ -573,9 +648,10 @@ def gaps_and_reasons(
     elif years:
         reasons.append(f"experiencia pedida ({years}+ años) dentro de lo que tienes")
     joined_must = " ".join(body)
-    if _ENGLISH_HIGH.search(joined_must):
+    if _ENGLISH_HIGH.search(joined_must) and not english_covers_fluent(profile):
         weight += 1
-        gaps.append(f"inglés fluido/avanzado; el perfil: {profile.english} sin certificar")
+        declared = profile.english_level or profile.english  # el campo que decidió
+        gaps.append(f"pide inglés fluido/avanzado; el perfil declara {declared}")
     if not profile.has_masters and any(
         _MASTERS.search(ln)
         and (_REQUIRED_WORD.search(ln) or _DEGREE_LEAD.search(ln))
@@ -720,6 +796,7 @@ _ENTRY_TRACK = re.compile(
 )
 #: En estos sectores, "Analyst" o "Associate" a secas es la puerta de entrada a la carrera
 #: objetivo (consultoría estratégica, banca de inversión), aunque el título no diga "finanzas".
+#: Valor por defecto; el perfil lo reemplaza con `preferences.entry_track_sectors`.
 _TRACK_SECTORS = {
     "consultoria": "consultoría (carrera de entrada)",
     "banca_global": "banca (programa de entrada)",
@@ -742,16 +819,21 @@ def evaluate(
     # El piso sale del perfil (`floor_monthly_cop`); antes se ignoraba y se usaba un valor fijo.
     floor = profile.floor_monthly_cop if floor_cop is None else floor_cop
     rel, family = relevance_of(p)
+    track = (
+        _TRACK_SECTORS
+        if profile.entry_track_sectors is None
+        else dict(profile.entry_track_sectors)
+    )
     if (
         not _FUNC_OFF.search(p.title)
         and rel in (Relevance.NULA, Relevance.BAJA)
-        and sector in _TRACK_SECTORS
+        and sector in track
         and tier == 1
         and _ENTRY_TRACK.search(p.title)
         and not _OFF_PROFILE.search(p.title)
         and not _OPS.search(p.title)
     ):
-        rel, family = Relevance.ALTA, _TRACK_SECTORS[sector]
+        rel, family = Relevance.ALTA, track[sector]
     auth = authorization_of(p, sector)
     must, nice = split_requirements(p.description) if p.description else ([], [])
     gaps, reasons, gap_weight = (
@@ -781,6 +863,9 @@ def evaluate(
     else:
         fit = Fit.BAJO
     age = _age(p.published_at, today)
+    if age is not None and age < 0:
+        # Un día de adelanto es la zona horaria del portal; más es un dato malo: no se estima.
+        age = 0 if age == -1 else None
     if age is None:
         recency, rec_pts = "sin fecha", 1
     elif age <= 15:
@@ -853,7 +938,9 @@ def evaluate(
     return ev
 
 
-_CPG = {"consumo_masivo", "retail"}
+#: Sectores a los que aplica `cpg_exception`; el perfil lo reemplaza con
+#: `preferences.cpg_exception.sectors`.
+_CPG = frozenset({"consumo_masivo", "retail"})
 
 
 def preference_points(
@@ -866,7 +953,8 @@ def preference_points(
     sectors = dict(profile.sector_points)
     families = dict(profile.family_points)
     pts = sectors.get(sector, 0)
-    if sector in _CPG and pts < 0:
+    cpg = _CPG if profile.cpg_sectors is None else profile.cpg_sectors
+    if sector in cpg and pts < 0:
         min_tier, fams, title_re = profile.cpg_exception
         if tier <= min_tier and family in fams and title_re and re.search(title_re, p.title, re.I):
             pts = -5

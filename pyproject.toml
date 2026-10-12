@@ -23,6 +23,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/radar_vacantes"]
 
+# La demo funciona también instalada sin clonar (pip install / uv tool install).
+[tool.hatch.build.targets.wheel.force-include]
+"ejemplo/vacantes.json" = "radar_vacantes/_ejemplo/vacantes.json"
+"config/perfil.ejemplo.yaml" = "radar_vacantes/_ejemplo/perfil.ejemplo.yaml"
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"

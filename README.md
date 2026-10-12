@@ -40,6 +40,28 @@ $ uv run radar demo
 
 <sub>Salida de `radar demo`: 8 vacantes sintéticas de [`ejemplo/vacantes.json`](ejemplo/vacantes.json) evaluadas con el perfil ficticio de [`config/perfil.ejemplo.yaml`](config/perfil.ejemplo.yaml).</sub>
 
+## Cómo funciona
+
+```text
+config/universo.yaml ─► fuentes (sources.py) ─► normalización (boards.py) ─► detalle y deduplicación (engine.py)
+                                                                                   │
+salida/*.md, *.json ◄─ reporte (report.py) ◄─ verificación en el portal (verify.py) ◄─ evaluación contra su perfil (evaluate.py)
+```
+
+1. **Fuentes.** Cada empresa del universo declara cómo se leen sus vacantes (API de un ATS,
+   Workday, Oracle…). Cada lectura termina en un resultado explícito; una respuesta con forma
+   desconocida, o con elementos de los que no sale ninguna vacante legible, es `error`, nunca
+   "sin vacantes".
+2. **Normalización.** Todo aviso se convierte al mismo `JobPosting` (empresa, cargo, ciudad,
+   fecha, salario, descripción). Lo que la fuente no trae queda vacío; no se inventa.
+3. **Detalle y deduplicación.** Para los avisos prometedores se lee la descripción completa.
+   Un mismo cargo en dos fuentes (empresa + cargo + ciudad) queda una vez, con el portal
+   original por encima del agregador.
+4. **Evaluación.** Reglas determinísticas contra `config/perfil.yaml` (ver *Cómo evalúa*).
+5. **Verificación.** Las mejores se comprueban una por una en el portal original.
+6. **Reporte.** Markdown y JSON en `salida/`, más un historial para saber qué es nuevo y qué
+   se cerró.
+
 ## Lo que este repositorio impide hacer mal
 
 Cada regla nació de un error real del motor, encontrado al postular de verdad. Todas
@@ -96,28 +118,61 @@ da siempre el mismo resultado, y cada punto se puede explicar.
 - **Antigüedad:** ≤15 días suma; más de 3 meses resta; "sin fecha" nunca se estima.
 - **Salario** publicado comparado con su piso (`floor_monthly_cop`), con la TRM oficial
   vigente ([datos.gov.co](https://www.datos.gov.co/)) para avisos en USD. Sin TRM, los avisos
-  en USD no se puntúan por salario.
+  en USD no se puntúan por salario. La moneda sale del código escrito (COP, pesos, USD); con
+  "$" a secas, "$4.500.000", "$900.000 mensual" y "$5 millones" son COP y "$80,000" es USD.
+  "4.500" y "4,500" son cuatro mil quinientos. Otras monedas, o dos en el mismo texto, no se
+  puntúan; un año ("Salario 2026") nunca es un monto.
+- **Inglés:** un aviso que pide inglés fluido o avanzado es brecha salvo que su perfil declare
+  C1, C2, nativo o bilingüe sin matices. "No fluido", "B2+ camino a C1" o "C1 en curso" cuentan
+  como brecha: ante la duda, brecha. Con `english_level: C1` (A1…C2, NATIVO) no hay que
+  interpretar el texto.
 - **Sus gustos:** puntos por sector y familia (`preferences` del perfil). No borran
-  vacantes, solo cambian el orden.
+  vacantes, solo cambian el orden. También desde el perfil: en qué sectores "Analyst" o
+  "Associate" a secas cuenta como carrera de entrada (`entry_track_sectors`).
 
 Luego toma las mejores, máximo 3 por empresa, y **verifica cada una en el portal
 original** (Workday `canApply`, JSON-LD `validThrough`, 404/410 = cerrada) antes de
 recomendarla.
 
-## Uso
+## Requisitos
+
+- [uv](https://docs.astral.sh/uv/) (instala Python 3.13 si no lo tiene).
+- Conexión a internet solo para `radar buscar` y `radar descubrir`. La demo y las pruebas no
+  usan la red.
+
+## Instalación
 
 ```bash
 git clone https://github.com/s-osorio-gom/radar-de-vacantes.git
 cd radar-de-vacantes
-uv sync                      # Python 3.13
-uv run radar demo            # sin red: vacantes sintéticas
-cp config/perfil.ejemplo.yaml config/perfil.yaml   # y póngale lo suyo
-uv run radar buscar          # corrida completa: varios minutos según la red
+uv sync
+uv run radar demo            # sin red: vacantes sintéticas con el perfil de ejemplo
 ```
 
-`config/perfil.yaml` no se versiona (está en `.gitignore`), igual que `salida/`. Si el
-perfil está mal formado (un número escrito como texto, una expresión regular inválida),
-el radar se detiene y dice qué campo corregir.
+También se puede instalar como comando (`uv tool install .` desde el clon); la demo funciona
+igual, pero `radar buscar` debe correr en una carpeta que tenga `config/universo.yaml`.
+
+## Su perfil
+
+```bash
+cp config/perfil.ejemplo.yaml config/perfil.yaml
+# edítelo: años, inglés, título, herramientas, piso salarial, fortalezas y gustos
+uv run radar demo --perfil config/perfil.yaml   # valida el perfil y lo prueba sin red
+```
+
+Si el perfil está mal formado (un número escrito como texto, una expresión regular inválida),
+el radar se detiene y dice qué campo corregir. Ponga solo lo que pueda sostener en una
+entrevista: una brecha honesta vale más que un falso "cumple". `config/perfil.yaml` no se
+versiona (está en `.gitignore`), igual que `salida/` y su seguimiento de postulaciones.
+
+Luego revise `config/universo.yaml`: es el universo de ejemplo de este repositorio. Quite las
+empresas que no le interesen y agregue las suyas (`radar descubrir`, abajo).
+
+## Uso
+
+```bash
+uv run radar buscar          # corrida completa: varios minutos según la red
+```
 
 `radar buscar` escribe en `salida/`:
 
@@ -129,7 +184,8 @@ el radar se detiene y dice qué campo corregir.
 
 Opciones útiles: `--seguimiento postulaciones.md` (una tabla Markdown con columnas
 Empresa | Puesto | Estado; esas vacantes no ocupan cupo), `--indeed resultados.json`,
-`--top 30`.
+`--top 30`, `--zona America/Mexico_City`. Un archivo que no existe o una zona inválida se
+reportan antes de leer cualquier portal.
 
 Para agregar una empresa, `radar descubrir "Empresa" https://example.com/careers` le dice
 qué sistema de vacantes usa y con qué referencia ponerla en `universo.yaml`.
@@ -173,6 +229,22 @@ Lo que el código no puede garantizar por usted:
 
 Este repositorio no es asesoría legal.
 
+## Limitaciones
+
+- **Hecho para una búsqueda en Colombia.** La autorización de trabajo distingue "Colombia",
+  "remoto desde Colombia" e internacional, y el piso salarial está en COP. Para otro país hay
+  que ajustar `_CO` y `AUTH_POINTS` en `evaluate.py`.
+- **Hecho para finanzas y estrategia.** Las familias de cargo (`_FAMILIES` en `evaluate.py`)
+  reconocen finanzas corporativas, FP&A, pricing, estrategia, economía, tesorería y datos.
+  Para otra carrera hay que editarlas; el perfil no basta.
+- **Portales leídos como HTML** (SuccessFactors, Impactpool): si cambian su diseño, la fuente
+  puede aparecer vacía en lugar de con error, porque una página realmente vacía se ve igual.
+- **Endpoints no documentados:** pueden cambiar sin aviso. Las pruebas usan respuestas de
+  ejemplo, no los portales reales; la primera señal de un cambio es un `error` con
+  "formato inesperado" en la cobertura.
+- **Lo que no publica el aviso no se evalúa:** sin requisitos publicados, el resultado es "sin
+  descripción para comparar", nunca "cumple".
+
 ## Verificación
 
 ```bash
@@ -185,7 +257,9 @@ uv run radar demo
 Es lo mismo que corre [`ci.yml`](.github/workflows/ci.yml). Las pruebas no tocan internet:
 cada conector se prueba contra respuestas de ejemplo, cada trampa de evaluación contra un
 texto como el que la produjo, y el cliente HTTP real se prueba sin abrir conexiones
-(robots.txt, ritmo por host, esquemas de URL).
+(robots.txt, ritmo por host, esquemas de URL). [`tests/test_fallos_red.py`](tests/test_fallos_red.py)
+simula timeout, 429, 5xx, JSON malformado, respuestas con forma inesperada y un conector que
+falla: ninguno detiene la corrida ni cierra vacantes en el historial.
 
 ## Licencia
 

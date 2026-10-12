@@ -274,3 +274,268 @@ def test_report_link_with_parentheses_stays_one_link() -> None:
                   today=TODAY)
     text = "\n".join(_detail(1, ev, "hoy"))
     assert "https://example.com/job/%28123%29%20x" in text
+
+
+# ------------------------------------------------------------------ salario y moneda
+
+
+@pytest.mark.parametrize(
+    ("text", "currency", "low", "interval"),
+    [
+        ("$4.500.000 - $5.000.000 mensual", "COP", 4_500_000, "monthly"),
+        ("$4.500.000 COP mensual", "COP", 4_500_000, "monthly"),
+        ("COP 4.500.000 al mes", "COP", 4_500_000, "monthly"),
+        ("4.500.000 pesos por mes", "COP", 4_500_000, "monthly"),
+        ("$80,000 - $100,000 per year", "USD", 80_000, "annual"),
+        ("USD 3,000 per month", "USD", 3_000, "monthly"),
+        ("$100k - $120k", "USD", 100_000, "annual"),
+        ("US$ 25 per hour", "USD", 25, "hourly"),
+        # Un año o una cifra antes de la moneda no entran en el rango.
+        ("Salario 2026: COP 8.000.000 mensual", "COP", 8_000_000, "monthly"),
+        ("COP 5.000.000 mensual (2026)", "COP", 5_000_000, "monthly"),
+        ("4.500.000 - 6.000.000 COP mensual", "COP", 4_500_000, "monthly"),
+        # Miles y decimales al estilo latino y anglosajón.
+        ("USD 4.500 mensual", "USD", 4_500, "monthly"),
+        ("$4.500.000,00", "COP", 4_500_000, "annual"),
+        ("COP 8.000.000,00 mensual", "COP", 8_000_000, "monthly"),
+        ("$70,000.00 - $90,000.00 per year", "USD", 70_000, "annual"),
+        ("$900.000 mensual", "COP", 900_000, "monthly"),
+        ("$5 millones al mes", "COP", 5_000_000, "monthly"),
+        ("COP 4.5M", "COP", 4_500_000, "annual"),
+        ("$25/hr", "USD", 25, "hourly"),
+        ("USD 80000 plus 401k", "USD", 80_000, "annual"),
+    ],
+)
+def test_salary_currency_and_interval(text: str, currency: str, low: int, interval: str) -> None:
+    from radar_vacantes.compensation import parse_salary
+
+    rng = parse_salary(text)
+    assert rng is not None
+    assert (rng.currency, int(rng.low), rng.interval.value) == (currency, low, interval)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["€50.000", "MXN 30,000", "30.000 pesos mexicanos al mes", "USD 3,000 o COP 12.000.000",
+     "a convenir", ""],
+)
+def test_other_or_ambiguous_currencies_are_not_scored(text: str) -> None:
+    from radar_vacantes.compensation import parse_salary
+
+    assert parse_salary(text) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "low"),
+    [
+        ("experiencia hasta 2025, COP 5.000.000", 5_000_000),
+        ("Hasta 12 meses de contrato. Salario: COP 5.000.000", 5_000_000),
+        ("Bonus up to 20%, USD 60,000 per year", 60_000),
+        ("Max. 40 horas; USD 3,000 monthly", 3_000),
+        ("Vacaciones hasta 15 días, COP 5.000.000", 5_000_000),
+        ("COP 4.000.000 hasta 6.000.000", 4_000_000),
+    ],
+)
+def test_a_ceiling_on_another_number_keeps_the_salary(text: str, low: int) -> None:
+    """Un "hasta" sobre días, meses, años o porcentajes no anula el salario publicado."""
+    from radar_vacantes.compensation import parse_salary
+
+    rng = parse_salary(text)
+    assert rng is not None and int(rng.low) == low
+
+
+def test_peso_salary_with_dollar_sign_is_compared_in_cop() -> None:
+    from decimal import Decimal
+
+    from radar_vacantes.compensation import CompGate
+
+    gate = CompGate(Decimal(5_500_000), Decimal(5_500_000), Decimal(4000), "2026-10-10")
+    p = _posting(salary_text="$4.500.000 - $5.000.000 mensual")
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=Profile.from_config(EXAMPLE),
+                  today=TODAY, gate=gate)
+    assert "≈ COP 4,500,000/mes, < COP 5,500,000/mes" in ev.salary_note
+
+
+@pytest.mark.parametrize(
+    ("level", "gap"),
+    [("B2", True), ("B2+", True), ("intermedio", True), ("C1", False), ("C2 (IELTS 8)", False),
+     ("nativo", False), ("bilingüe", False), ("C1 certificado", False), ("Avanzado (C1)", False),
+     # Negaciones, metas y niveles mezclados: ante la duda, brecha.
+     ("No fluido", True), ("Intermedio (no nativo)", True), ("Not fluent yet", True),
+     ("B2+ (camino a C1)", True), ("B2, preparando C1", True), ("C1 en curso", True),
+     ("Avanzado", True), ("IELTS 7.5", True)],
+)
+def test_english_gap_depends_on_the_declared_level(level: str, gap: bool) -> None:
+    p = _posting(title="Financial Analyst", description=(
+        "Requirements\nFluent English required\n2 years of experience in finance"))
+    profile = Profile.from_config({**EXAMPLE, "english": level})
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=profile, today=TODAY)
+    assert any("inglés" in g for g in ev.gaps) is gap
+    if not gap:
+        assert ev.fit.value == "cumple completamente"
+
+
+@pytest.mark.parametrize(
+    ("published", "age", "recency"),
+    [("2026-10-10", 0, "0 días"), ("2026-10-09", 1, "1 días"), ("2026-10-11", 0, "0 días"),
+     ("2026-12-01", None, "sin fecha"), ("2026-02-30", None, "sin fecha"), ("", None, "sin fecha")],
+)
+def test_future_or_invalid_dates_are_not_recent(published: str, age: int | None,
+                                                recency: str) -> None:
+    ev = evaluate(_posting(published_at=published), company_id="a", sector="", tier=2,
+                  profile=Profile.from_config(EXAMPLE), today=TODAY)
+    assert (ev.age_days, ev.recency) == (age, recency)
+
+
+def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    import radar_vacantes.cli as cli
+
+    def refuse(**_: Any) -> None:
+        raise AssertionError("se abrió la red antes de validar los argumentos")
+
+    monkeypatch.setattr(cli, "UrllibHttp", refuse)
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        (["--seguimiento", "no-existe.md"], "No existe el archivo de seguimiento"),
+        (["--zona", "Bogota"], "Zona horaria desconocida"),
+    ],
+)
+def test_cli_bad_arguments_fail_before_the_network(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra: list[str], message: str
+) -> None:
+    _no_network(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    args = ["buscar", "--perfil", str(ROOT / "config/perfil.ejemplo.yaml"),
+            "--universo", str(ROOT / "config/universo.yaml"), "--salida", str(tmp_path / "s")]
+    with pytest.raises(SystemExit, match=message):
+        main([*args, *extra])
+    assert not (tmp_path / "s").exists()
+
+
+def test_entry_track_and_cpg_sectors_come_from_the_profile() -> None:
+    p = _posting(title="Associate", description="")
+
+    def rel(cfg: dict[str, Any], sector: str) -> str:
+        prof = Profile.from_config(cfg)
+        return evaluate(p, company_id="a", sector=sector, tier=1, profile=prof,
+                        today=TODAY).relevance.value
+
+    assert rel(EXAMPLE, "consultoria") == "alta"  # valor por defecto del código
+    off = {**EXAMPLE, "preferences": {**EXAMPLE["preferences"], "entry_track_sectors": {}}}
+    assert rel(off, "consultoria") == "nula"
+    mine = {**EXAMPLE, "preferences": {**EXAMPLE["preferences"],
+                                       "entry_track_sectors": {"tecnologia": "entrada en tech"}}}
+    assert rel(mine, "tecnologia") == "alta" and rel(mine, "consultoria") == "nula"
+    prefs = EXAMPLE["preferences"]
+    assert Profile.from_config(EXAMPLE).cpg_sectors is None
+    custom = {**EXAMPLE, "preferences": {**prefs, "cpg_exception": {
+        **prefs["cpg_exception"], "sectors": ["retail"]}}}
+    assert Profile.from_config(custom).cpg_sectors == frozenset({"retail"})
+
+
+@pytest.mark.parametrize(
+    ("prefs", "message"),
+    [({"entry_track_sectors": ["consultoria"]}, "entry_track_sectors"),
+     ({"entry_track_sectors": {"consultoria": 3}}, "entry_track_sectors.consultoria"),
+     ({"cpg_exception": {"sectors": "retail"}}, "cpg_exception.sectors"),
+     # null no apaga en silencio: apagar es {} o [] explícito.
+     ({"entry_track_sectors": None}, "entry_track_sectors"),
+     ({"entry_track_sectors": {1: "x"}}, "entry_track_sectors"),
+     ({"cpg_exception": {"sectors": None}}, "cpg_exception.sectors"),
+     ({"cpg_exception": {"sectors": [None, {"a": 1}]}}, "cpg_exception.sectors")],
+)
+def test_invalid_track_preferences_name_the_field(prefs: dict[str, Any], message: str) -> None:
+    with pytest.raises(ProfileError, match=message):
+        Profile.from_config({**EXAMPLE, "preferences": prefs})
+
+
+
+@pytest.mark.parametrize(
+    ("level", "text", "gap"),
+    [("B2", "C1", True), ("C1", "en progreso", False), ("native", "x", False), ("b1", "", True)],
+)
+def test_structured_english_level_wins_over_text(level: str, text: str, gap: bool) -> None:
+    p = _posting(title="Financial Analyst", description=(
+        "Requirements\nFluent English required\n2 years of experience in finance"))
+    profile = Profile.from_config({**EXAMPLE, "english": text or "x", "english_level": level})
+    ev = evaluate(p, company_id="a", sector="", tier=2, profile=profile, today=TODAY)
+    assert any("inglés" in g for g in ev.gaps) is gap
+
+
+@pytest.mark.parametrize("level", ["C3", "fluido", True, ["C1"]])
+def test_invalid_english_level_names_the_field(level: Any) -> None:
+    with pytest.raises(ProfileError, match="english_level"):
+        Profile.from_config({**EXAMPLE, "english_level": level})
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["config/perfil.yaml", "config/seguimiento.md", "seguimiento.md", "postulaciones.md",
+     "salida/Top20_x.md"],
+)
+def test_personal_files_are_never_versioned(path: str) -> None:
+    import shutil
+    import subprocess
+
+    if not (ROOT / ".git").exists() or shutil.which("git") is None:
+        pytest.skip("sin repositorio git")
+    ignored = subprocess.run(
+        ["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", path], check=False
+    )
+    assert ignored.returncode == 0, f"{path} no está en .gitignore"
+
+
+
+@pytest.mark.parametrize(
+    ("text", "low", "high"),
+    [
+        # Una cifra entre 1900 y 2099 que cierra un rango con moneda es un monto, no un año.
+        ("USD 1500-2000 monthly", 1500, 2000),
+        ("USD 1,500 - 2000 mensual", 1500, 2000),
+        ("USD 2000 - 2500 per month", 2000, 2500),
+        # Un año que no es parte de un rango sigue fuera.
+        ("Salario 2026: COP 8.000.000 mensual", 8_000_000, 8_000_000),
+        ("COP 5.000.000 mensual (2026)", 5_000_000, 5_000_000),
+        # "millones" vale para los dos extremos solo si el primero es una cifra corta.
+        ("entre 8 y 10 millones de pesos", 8_000_000, 10_000_000),
+        ("$8 - $10 millones mensual", 8_000_000, 10_000_000),
+        ("COP 3 a 4 millones al mes", 3_000_000, 4_000_000),
+        ("8 a 10 millones COP", 8_000_000, 10_000_000),
+        ("4,5 millones de pesos", 4_500_000, 4_500_000),
+        # Si el primero ya está en pesos, no se multiplica otra vez.
+        ("COP 2.500.000 - 3 millones mensual", 2_500_000, 3_000_000),
+        ("$2.500.000 a 3 millones", 2_500_000, 3_000_000),
+    ],
+)
+def test_salary_range_bounds(text: str, low: int, high: int) -> None:
+    from radar_vacantes.compensation import parse_salary
+
+    rng = parse_salary(text)
+    assert rng is not None and (int(rng.low), int(rng.high)) == (low, high)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "8 años, hasta 10 millones de pesos",
+        "hasta COP 6.000.000 mensual",
+        "up to USD 5,000 per month",
+    ],
+)
+def test_a_ceiling_alone_is_not_a_floor(text: str) -> None:
+    """Un tope sin piso no se puntúa: leerlo como mínimo sumaría puntos que el aviso no promete."""
+    from radar_vacantes.compensation import parse_salary
+
+    assert parse_salary(text) is None
+
+
+
+def test_english_gap_quotes_the_level_that_decided() -> None:
+    p = _posting(title="Financial Analyst", description=(
+        "Requirements\nFluent English required\n2 years of experience in finance"))
+    ev = evaluate(p, company_id="a", sector="", tier=2, today=TODAY,
+                  profile=Profile.from_config({**EXAMPLE, "english": "C1", "english_level": "B2"}))
+    assert "pide inglés fluido/avanzado; el perfil declara B2" in ev.gaps
