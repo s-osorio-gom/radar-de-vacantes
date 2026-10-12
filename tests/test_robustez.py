@@ -467,3 +467,23 @@ def test_personal_files_are_never_versioned(path: str) -> None:
         ["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", path], check=False
     )
     assert ignored.returncode == 0, f"{path} no está en .gitignore"
+
+
+
+@pytest.mark.parametrize(
+    ("text", "low", "high"),
+    [
+        # Una cifra entre 1900 y 2099 que cierra un rango con moneda es un monto, no un año.
+        ("USD 1500-2000 monthly", 1500, 2000),
+        ("USD 1,500 - 2000 mensual", 1500, 2000),
+        ("USD 2000 - 2500 per month", 2000, 2500),
+        # Un año que no es parte de un rango sigue fuera.
+        ("Salario 2026: COP 8.000.000 mensual", 8_000_000, 8_000_000),
+        ("COP 5.000.000 mensual (2026)", 5_000_000, 5_000_000),
+    ],
+)
+def test_salary_range_bounds(text: str, low: int, high: int) -> None:
+    from radar_vacantes.compensation import parse_salary
+
+    rng = parse_salary(text)
+    assert rng is not None and (int(rng.low), int(rng.high)) == (low, high)

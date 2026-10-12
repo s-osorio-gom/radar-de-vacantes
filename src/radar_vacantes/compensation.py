@@ -83,6 +83,7 @@ _CODES = (
 )
 _MILLONES = re.compile(r"(\d)\s*mill(?:ones|[oó]n)\b", re.IGNORECASE)
 _COP_MONTHLY = Decimal(100_000)
+_RANGE_SEP = re.compile(r"\s*(?:-|–|—|a|to|y|hasta|al)\s*", re.IGNORECASE)
 _YEAR = re.compile(r"(19|20)\d\d")
 _GROUPED = re.compile(r"\d[.,]\d{3}")
 #: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
@@ -113,6 +114,7 @@ def parse_salary(text: str) -> SalaryRange | None:
     seen_symbol = False
     millions = False
     amounts: list[Decimal] = []
+    prev_end = -1  # fin del último monto aceptado
     for match in _AMOUNT.finditer(text):
         symbol, number, suffix = match.group(1), match.group(2), match.group(3) or ""
         seen_symbol = seen_symbol or bool(symbol)
@@ -122,12 +124,16 @@ def parse_salary(text: str) -> SalaryRange | None:
         # año ("Salario 2026: COP 8.000.000") nunca es un monto.
         bare = not symbol and not suffix
         after = seen_symbol or match.start() >= first_named
-        if bare and (_YEAR.fullmatch(number) or not (after or _GROUPED.search(number))):
+        # "USD 1500-2000": el 2000 cierra un rango, no es un año.
+        range_tail = prev_end >= 0 and bool(_RANGE_SEP.fullmatch(text[prev_end : match.start()]))
+        year = _YEAR.fullmatch(number) and not range_tail
+        if bare and (year or not (after or _GROUPED.search(number))):
             continue
         if value is not None and value > 0 and (
             symbol or suffix or ((named or seen_symbol) and value >= 1000)
         ):
             amounts.append(value)
+            prev_end = match.end()
             millions = millions or value >= _COP_MAGNITUDE
     if not amounts or not (named or seen_symbol):
         return None
