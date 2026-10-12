@@ -480,6 +480,13 @@ def test_personal_files_are_never_versioned(path: str) -> None:
         # Un año que no es parte de un rango sigue fuera.
         ("Salario 2026: COP 8.000.000 mensual", 8_000_000, 8_000_000),
         ("COP 5.000.000 mensual (2026)", 5_000_000, 5_000_000),
+        # "millones" vale para los dos extremos solo si el primero es una cifra corta.
+        ("entre 8 y 10 millones de pesos", 8_000_000, 10_000_000),
+        ("$8 - $10 millones mensual", 8_000_000, 10_000_000),
+        ("COP 3 a 4 millones al mes", 3_000_000, 4_000_000),
+        # Si el primero ya está en pesos, no se multiplica otra vez.
+        ("COP 2.500.000 - 3 millones mensual", 2_500_000, 3_000_000),
+        ("$2.500.000 a 3 millones", 2_500_000, 3_000_000),
     ],
 )
 def test_salary_range_bounds(text: str, low: int, high: int) -> None:
@@ -487,6 +494,21 @@ def test_salary_range_bounds(text: str, low: int, high: int) -> None:
 
     rng = parse_salary(text)
     assert rng is not None and (int(rng.low), int(rng.high)) == (low, high)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "8 años, hasta 10 millones de pesos",
+        "hasta COP 6.000.000 mensual",
+        "up to USD 5,000 per month",
+    ],
+)
+def test_a_ceiling_alone_is_not_a_floor(text: str) -> None:
+    """Un tope sin piso no se puntúa: leerlo como mínimo sumaría puntos que el aviso no promete."""
+    from radar_vacantes.compensation import parse_salary
+
+    assert parse_salary(text) is None
 
 
 

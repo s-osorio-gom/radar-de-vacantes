@@ -85,6 +85,7 @@ _MILLONES = re.compile(r"(\d)\s*mill(?:ones|[oó]n)\b", re.IGNORECASE)
 _COP_MONTHLY = Decimal(100_000)
 _RANGE_SEP = re.compile(r"\s*(?:-|–|—|a|to|y|hasta|al)\s*", re.IGNORECASE)
 _YEAR = re.compile(r"(19|20)\d\d")
+_CEILING = re.compile(r"\b(hasta|up to|m[aá]ximo|max\.?)\s*(de\s*)?\S*\s*$", re.IGNORECASE)
 _GROUPED = re.compile(r"\d[.,]\d{3}")
 #: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
 _COP_MAGNITUDE = Decimal(1_000_000)
@@ -115,10 +116,28 @@ def parse_salary(text: str) -> SalaryRange | None:
     millions = False
     amounts: list[Decimal] = []
     prev_end = -1  # fin del último monto aceptado
+    small_bare: tuple[str, int] | None = None  # "8" de "entre 8 y 10 millones"
+    ceiling_only = False  # "hasta 10 millones": se conoce el tope, no el piso
     for match in _AMOUNT.finditer(text):
         symbol, number, suffix = match.group(1), match.group(2), match.group(3) or ""
         seen_symbol = seen_symbol or bool(symbol)
         value = _to_decimal(number, suffix)
+        if not amounts and suffix.lower() == "m" and small_bare is not None:
+            # "8 y 10 millones": el sufijo vale para los dos extremos, pero solo si el primero
+            # es una cifra corta sin miles (un "2.500.000 a 3 millones" ya está en pesos).
+            first, first_end = small_bare
+            if _RANGE_SEP.fullmatch(text[first_end : match.start()]):
+                amounts.append(_to_decimal(first, "m") or Decimal(0))
+                prev_end = first_end
+        if (
+            len(amounts) == 1
+            and suffix.lower() == "m"
+            and amounts[0] < 1000
+            and _RANGE_SEP.fullmatch(text[prev_end : match.start()].replace("$", ""))
+        ):
+            amounts[0] *= 1_000_000  # "$8 - $10 millones"
+        if not amounts and _CEILING.search(text[max(0, match.start() - 14) : match.start()]):
+            ceiling_only = True
         # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo. Una cifra suelta antes
         # de la moneda solo cuenta con separador de miles ("4.500.000 - 6.000.000 COP"), y un
         # año ("Salario 2026: COP 8.000.000") nunca es un monto.
@@ -128,6 +147,8 @@ def parse_salary(text: str) -> SalaryRange | None:
         range_tail = prev_end >= 0 and bool(_RANGE_SEP.fullmatch(text[prev_end : match.start()]))
         year = _YEAR.fullmatch(number) and not range_tail
         if bare and (year or not (after or _GROUPED.search(number))):
+            if not year and not _GROUPED.search(number) and value is not None and value < 1000:
+                small_bare = (number, match.end())
             continue
         if value is not None and value > 0 and (
             symbol or suffix or ((named or seen_symbol) and value >= 1000)
@@ -137,6 +158,8 @@ def parse_salary(text: str) -> SalaryRange | None:
             millions = millions or value >= _COP_MAGNITUDE
     if not amounts or not (named or seen_symbol):
         return None
+    if ceiling_only and len(amounts) == 1:
+        return None  # solo un tope: leerlo como piso sumaría puntos que el aviso no promete
     if re.search(r"(/\s*h(ou)?r|per hour|hourly|por hora)", lowered):
         interval = Interval.HOURLY
     elif re.search(r"(/\s*mo(nth)?|per month|monthly|mensual|al mes|por mes|/\s*mes)", lowered):
