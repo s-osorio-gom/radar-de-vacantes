@@ -82,10 +82,6 @@ _CODES = (
     ("USD", re.compile(r"\busd\b|us\$|d[oó]lar", re.IGNORECASE)),
 )
 _MILLONES = re.compile(r"(\d)\s*mill(?:ones|[oó]n)\b", re.IGNORECASE)
-_MILLONES_RANGE = re.compile(
-    r"(\d[\d.,]*)(\s*(?:-|–|a|y|hasta|to)\s*\$?\s*)(\d[\d.,]*\s*mill(?:ones|[oó]n)\b)",
-    re.IGNORECASE,
-)
 _COP_MONTHLY = Decimal(100_000)
 _RANGE_SEP = re.compile(r"\s*(?:-|–|—|a|to|y|hasta|al)\s*", re.IGNORECASE)
 _YEAR = re.compile(r"(19|20)\d\d")
@@ -114,9 +110,7 @@ def parse_salary(text: str) -> SalaryRange | None:
         return None
     first_named = min(named_at.values(), default=len(text))
     # "$5 millones" = $5M; "401k" es un plan de retiro, no un monto.
-    text = re.sub(r"\b401\s*\(?k\)?", " ", text, flags=re.IGNORECASE)
-    # "entre 8 y 10 millones", "$8 - $10 millones": "millones" vale para los dos extremos.
-    text = _MILLONES.sub(r"\1M", _MILLONES_RANGE.sub(r"\1M\2\3", text))
+    text = _MILLONES.sub(r"\1M", re.sub(r"\b401\s*\(?k\)?", " ", text, flags=re.IGNORECASE))
     seen_symbol = False
     millions = False
     amounts: list[Decimal] = []
