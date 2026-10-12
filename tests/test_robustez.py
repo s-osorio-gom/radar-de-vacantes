@@ -325,6 +325,25 @@ def test_other_or_ambiguous_currencies_are_not_scored(text: str) -> None:
     assert parse_salary(text) is None
 
 
+@pytest.mark.parametrize(
+    ("text", "low"),
+    [
+        ("experiencia hasta 2025, COP 5.000.000", 5_000_000),
+        ("Hasta 12 meses de contrato. Salario: COP 5.000.000", 5_000_000),
+        ("Bonus up to 20%, USD 60,000 per year", 60_000),
+        ("Max. 40 horas; USD 3,000 monthly", 3_000),
+        ("Vacaciones hasta 15 días, COP 5.000.000", 5_000_000),
+        ("COP 4.000.000 hasta 6.000.000", 4_000_000),
+    ],
+)
+def test_a_ceiling_on_another_number_keeps_the_salary(text: str, low: int) -> None:
+    """Un "hasta" sobre días, meses, años o porcentajes no anula el salario publicado."""
+    from radar_vacantes.compensation import parse_salary
+
+    rng = parse_salary(text)
+    assert rng is not None and int(rng.low) == low
+
+
 def test_peso_salary_with_dollar_sign_is_compared_in_cop() -> None:
     from decimal import Decimal
 
@@ -484,6 +503,8 @@ def test_personal_files_are_never_versioned(path: str) -> None:
         ("entre 8 y 10 millones de pesos", 8_000_000, 10_000_000),
         ("$8 - $10 millones mensual", 8_000_000, 10_000_000),
         ("COP 3 a 4 millones al mes", 3_000_000, 4_000_000),
+        ("8 a 10 millones COP", 8_000_000, 10_000_000),
+        ("4,5 millones de pesos", 4_500_000, 4_500_000),
         # Si el primero ya está en pesos, no se multiplica otra vez.
         ("COP 2.500.000 - 3 millones mensual", 2_500_000, 3_000_000),
         ("$2.500.000 a 3 millones", 2_500_000, 3_000_000),

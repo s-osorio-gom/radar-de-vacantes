@@ -85,7 +85,7 @@ _MILLONES = re.compile(r"(\d)\s*mill(?:ones|[oó]n)\b", re.IGNORECASE)
 _COP_MONTHLY = Decimal(100_000)
 _RANGE_SEP = re.compile(r"\s*(?:-|–|—|a|to|y|hasta|al)\s*", re.IGNORECASE)
 _YEAR = re.compile(r"(19|20)\d\d")
-_CEILING = re.compile(r"\b(hasta|up to|m[aá]ximo|max\.?)\s*(de\s*)?\S*\s*$", re.IGNORECASE)
+_CEILING = re.compile(r"\b(hasta|up to|m[aá]ximo|max\.?)\s*(de\s*)?$", re.IGNORECASE)
 _GROUPED = re.compile(r"\d[.,]\d{3}")
 #: Con "$" a secas, un monto de millones sin sufijo es un salario en pesos colombianos.
 _COP_MAGNITUDE = Decimal(1_000_000)
@@ -136,8 +136,10 @@ def parse_salary(text: str) -> SalaryRange | None:
             and _RANGE_SEP.fullmatch(text[prev_end : match.start()].replace("$", ""))
         ):
             amounts[0] *= 1_000_000  # "$8 - $10 millones"
-        if not amounts and _CEILING.search(text[max(0, match.start() - 14) : match.start()]):
-            ceiling_only = True
+        # "hasta" solo es tope si va justo antes del monto que entra primero; un "hasta 12
+        # meses" o "up to 20%" previos no dicen nada del salario.
+        before = text[max(0, match.start() - 14) : match.start()]
+        capped = not amounts and bool(_CEILING.search(before))
         # Tras ver la moneda, "8.000.000 - 10.000.000" comparte símbolo. Una cifra suelta antes
         # de la moneda solo cuenta con separador de miles ("4.500.000 - 6.000.000 COP"), y un
         # año ("Salario 2026: COP 8.000.000") nunca es un monto.
@@ -153,6 +155,7 @@ def parse_salary(text: str) -> SalaryRange | None:
         if value is not None and value > 0 and (
             symbol or suffix or ((named or seen_symbol) and value >= 1000)
         ):
+            ceiling_only = ceiling_only or capped
             amounts.append(value)
             prev_end = match.end()
             millions = millions or value >= _COP_MAGNITUDE
